@@ -6,6 +6,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.checkpointer import close_checkpointer, get_checkpointer
 from app.config import settings
 from app.database import engine
 from app.models import Base
@@ -17,7 +18,11 @@ async def lifespan(app: FastAPI):
     # Alembic remains the source of truth; this keeps local bootstraps friction-free.
     async with engine.begin() as connection:
         await connection.run_sync(Base.metadata.create_all)
+    checkpointer = await get_checkpointer()
+    await checkpointer.setup()
+    app.state.checkpointer = checkpointer
     yield
+    await close_checkpointer()
     await engine.dispose()
 
 
@@ -42,4 +47,3 @@ app.include_router(notifications.router, prefix="/api/notifications", tags=["not
 @app.get("/health")
 async def healthcheck() -> dict[str, str]:
     return {"status": "ok"}
-
