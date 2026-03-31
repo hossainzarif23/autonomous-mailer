@@ -12,3 +12,12 @@ class EmailSummary(BaseModel):
     snippet: str
     date: str
 
+
+class EmailDetail(EmailSummary):
+    to: str
+    cc: str
+    body: str
+    label_ids: list[str]
+    gmail_message_header: str
+    references: str
+    in_reply_to: str
