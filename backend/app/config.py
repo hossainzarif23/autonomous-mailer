@@ -2,7 +2,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 
+from dotenv import load_dotenv
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+load_dotenv()
 
 
 class Settings(BaseSettings):
@@ -29,6 +32,10 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = ""
     TAVILY_API_KEY: str = ""
     FRONTEND_URL: str = "http://localhost:3000"
+    LANGSMITH_TRACING: bool = False
+    LANGSMITH_PROJECT: str = "email-agent"
+    LANGSMITH_ENDPOINT: str = "https://api.smith.langchain.com"
+    LANGSMITH_API_KEY: str = ""
 
     @property
     def sync_database_url(self) -> str:

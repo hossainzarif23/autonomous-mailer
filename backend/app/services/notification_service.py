@@ -1,7 +1,13 @@
 from __future__ import annotations
 
 import asyncio
+import uuid
 from collections import defaultdict
+from typing import Any
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.models.notification import Notification
 
 
 class NotificationService:
@@ -27,6 +33,28 @@ class NotificationService:
     async def broadcast(self, user_id: str, event: dict):
         for queue in list(self._queues.get(user_id, [])):
             await queue.put(event)
+
+    async def create_notification(
+        self,
+        db: AsyncSession,
+        user_id: str,
+        *,
+        type: str,
+        title: str,
+        body: str | None = None,
+        metadata: dict[str, Any] | None = None,
+    ) -> Notification:
+        notification = Notification(
+            user_id=uuid.UUID(user_id),
+            type=type,
+            title=title,
+            body=body,
+            metadata_json=metadata or {},
+        )
+        db.add(notification)
+        await db.commit()
+        await db.refresh(notification)
+        return notification
 
 
 notification_service = NotificationService()

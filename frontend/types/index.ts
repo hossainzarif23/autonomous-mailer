@@ -43,9 +43,18 @@ export interface EmailDraft {
   subject: string;
   body: string;
   draft_type: "reply" | "fresh";
+  description?: string | null;
 }
 
-export type ApprovalAction = "approve" | "edit_and_approve" | "reject";
+export type ApprovalAction = "approve" | "edit" | "reject";
+
+export interface ApprovalDraftPayload {
+  to: string;
+  subject: string;
+  body: string;
+  draft_type: "reply" | "fresh";
+  description?: string | null;
+}
 
 export interface SSEEvent {
   type:
@@ -59,7 +68,9 @@ export interface SSEEvent {
     | "ping";
   content?: string;
   draft_id?: string;
-  draft?: EmailDraft;
+  draft?: ApprovalDraftPayload;
+  description?: string;
   title?: string;
   body?: string;
+  gmail_message_id?: string;
 }

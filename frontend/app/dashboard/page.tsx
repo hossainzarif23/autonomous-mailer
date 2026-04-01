@@ -47,7 +47,8 @@ export default function DashboardPage() {
           </p>
         </div>
         <div className="rounded-2xl border border-dashed border-border p-4 text-sm text-muted-foreground">
-          Phase 2 auth is live. Chat and notification state will be wired into this shell in the next phases.
+          Phase 5 is live. Chat streams from the coordinator agent, approval requests arrive over SSE, and approved
+          drafts resume the interrupted workflow.
         </div>
       </aside>
       <section className="flex min-h-screen flex-col">

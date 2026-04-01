@@ -14,7 +14,11 @@ export function MessageBubble({ message }: MessageBubbleProps) {
       )}
     >
       <p className="whitespace-pre-wrap text-sm leading-7">{message.content}</p>
+      {message.metadata?.is_waiting_approval ? (
+        <p className="mt-3 text-xs font-semibold uppercase tracking-[0.2em] text-primary">
+          Waiting for approval
+        </p>
+      ) : null}
     </div>
   );
 }
-

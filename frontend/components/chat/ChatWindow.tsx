@@ -19,10 +19,10 @@ export function ChatWindow() {
         {messages.length === 0 ? (
           <section className="rounded-[2rem] border border-border bg-card/90 p-8 shadow-xl">
             <p className="text-sm font-semibold uppercase tracking-[0.3em] text-primary">Assistant</p>
-            <h2 className="mt-3 text-3xl font-semibold">Ready for Phase 2 through Phase 6.</h2>
+            <h2 className="mt-3 text-3xl font-semibold">Chat streaming and approval are live.</h2>
             <p className="mt-4 max-w-2xl text-sm leading-7 text-muted-foreground">
-              The dashboard shell is live. Authentication, streaming chat, approval workflows, and Gmail actions plug
-              into this interface in the next phases.
+              Ask for recent emails, search by sender or topic, summarize threads, or draft a reply that pauses for
+              approval before sending.
             </p>
             <div className="mt-8 grid gap-3 md:grid-cols-2">
               {starterMessages.map((message) => (
@@ -39,4 +39,3 @@ export function ChatWindow() {
     </div>
   );
 }
-

@@ -39,6 +39,7 @@ class AgentToolTests(IsolatedAsyncioTestCase):
         runtime = SimpleNamespace(
             context=SimpleNamespace(
                 user_id=str(uuid.uuid4()),
+                conversation_id=str(uuid.uuid4()),
                 db_session=db_session,
                 gmail_service=SimpleNamespace(send_email=AsyncMock()),
                 notification_service=NotificationService(),
@@ -53,7 +54,6 @@ class AgentToolTests(IsolatedAsyncioTestCase):
                 draft_type="fresh",
                 in_reply_to=None,
                 thread_id=None,
-                conversation_id=str(uuid.uuid4()),
                 runtime=runtime,
             )
 
