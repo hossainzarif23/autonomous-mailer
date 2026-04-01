@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
+import { getErrorMessage } from "@/lib/api";
 import { useChatStore } from "@/stores/chatStore";
 
 function formatConversationDate(value: string) {
@@ -22,6 +23,7 @@ function formatConversationDate(value: string) {
 
 export function ConversationSidebar() {
   const [isLoadingConversations, setIsLoadingConversations] = useState(true);
+  const [sidebarError, setSidebarError] = useState<string | null>(null);
   const { user, logout } = useAuth();
   const { activeConversationId, conversations, messages, isStreaming } = useChatStore((state) => ({
     activeConversationId: state.activeConversationId,
@@ -48,6 +50,11 @@ export function ConversationSidebar() {
         }
 
         await loadConversation(firstConversation.id);
+        setSidebarError(null);
+      } catch (error) {
+        if (!cancelled) {
+          setSidebarError(getErrorMessage(error, "Failed to load the conversation list."));
+        }
       } finally {
         if (!cancelled) {
           setIsLoadingConversations(false);
@@ -61,6 +68,36 @@ export function ConversationSidebar() {
       cancelled = true;
     };
   }, []);
+
+  async function handleRetry() {
+    setIsLoadingConversations(true);
+    try {
+      await refreshConversations();
+      setSidebarError(null);
+    } catch (error) {
+      setSidebarError(getErrorMessage(error, "Failed to load the conversation list."));
+    } finally {
+      setIsLoadingConversations(false);
+    }
+  }
+
+  async function handleCreateConversation() {
+    try {
+      await createConversation();
+      setSidebarError(null);
+    } catch {
+      // Toasting is handled inside useChat.
+    }
+  }
+
+  async function handleOpenConversation(conversationId: string) {
+    try {
+      await loadConversation(conversationId);
+      setSidebarError(null);
+    } catch {
+      // Toasting is handled inside useChat.
+    }
+  }
 
   return (
     <aside className="flex h-screen flex-col border-b border-border/70 bg-card/80 p-6 backdrop-blur lg:border-b-0 lg:border-r">
@@ -83,7 +120,7 @@ export function ConversationSidebar() {
         </p>
       </div>
 
-      <Button className="mb-4 w-full justify-start rounded-2xl" onClick={() => void createConversation()} disabled={isStreaming}>
+      <Button className="mb-4 w-full justify-start rounded-2xl" onClick={() => void handleCreateConversation()} disabled={isStreaming}>
         <MessageSquarePlus className="mr-2 h-4 w-4" />
         New Chat
       </Button>
@@ -106,6 +143,14 @@ export function ConversationSidebar() {
               <Loader2 className="mr-2 h-4 w-4 animate-spin" />
               Loading conversations...
             </div>
+          ) : sidebarError ? (
+            <div className="rounded-2xl border border-destructive/40 bg-destructive/5 p-4 text-sm">
+              <p className="font-medium text-destructive">Unable to load conversations</p>
+              <p className="mt-1 text-muted-foreground">{sidebarError}</p>
+              <Button className="mt-3" size="sm" variant="outline" onClick={() => void handleRetry()}>
+                Retry
+              </Button>
+            </div>
           ) : conversations.length === 0 ? (
             <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm text-muted-foreground">
               {messages.length > 0 ? "Conversation history is available in the active thread." : "No conversations yet. Start a new chat to begin."}
@@ -118,7 +163,7 @@ export function ConversationSidebar() {
                 <button
                   key={conversation.id}
                   type="button"
-                  onClick={() => void loadConversation(conversation.id)}
+                  onClick={() => void handleOpenConversation(conversation.id)}
                   disabled={isStreaming}
                   className={[
                     "w-full rounded-2xl border px-4 py-3 text-left transition",

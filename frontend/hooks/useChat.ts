@@ -1,6 +1,6 @@
 "use client";
 
-import { api } from "@/lib/api";
+import { api, getErrorMessage } from "@/lib/api";
 import { useChatStore } from "@/stores/chatStore";
 import { useToast } from "@/hooks/use-toast";
 import type { ChatMessage, SSEEvent } from "@/types";
@@ -20,10 +20,9 @@ export function useChat() {
   const { toast } = useToast();
 
   async function refreshConversations() {
-    const response = await api.get<{ id: string; title: string | null; created_at: string; updated_at: string }[]>(
-      "/chat/conversations"
-    );
+    const response = await api.get<{ id: string; title: string | null; created_at: string; updated_at: string }[]>("/chat/conversations");
     setConversations(response.data);
+    return response.data;
   }
 
   async function ensureConversationId() {
@@ -42,17 +41,35 @@ export function useChat() {
       return;
     }
 
-    const response = await api.get<ChatMessage[]>(`/chat/history/${conversationId}`);
-    setActiveConversationId(conversationId);
-    setMessages(response.data);
+    try {
+      const response = await api.get<ChatMessage[]>(`/chat/history/${conversationId}`);
+      setActiveConversationId(conversationId);
+      setMessages(response.data);
+    } catch (error) {
+      const message = getErrorMessage(error, "Failed to load the selected conversation.");
+      toast({
+        title: "History Error",
+        description: message
+      });
+      throw error;
+    }
   }
 
   async function createConversation() {
-    const response = await api.post<{ id: string }>("/chat/conversations");
-    setActiveConversationId(response.data.id);
-    setMessages([]);
-    await refreshConversations();
-    return response.data.id;
+    try {
+      const response = await api.post<{ id: string }>("/chat/conversations");
+      setActiveConversationId(response.data.id);
+      setMessages([]);
+      await refreshConversations();
+      return response.data.id;
+    } catch (error) {
+      const message = getErrorMessage(error, "Failed to create a new conversation.");
+      toast({
+        title: "Conversation Error",
+        description: message
+      });
+      throw error;
+    }
   }
 
   async function sendMessage(message: string) {
@@ -158,11 +175,11 @@ export function useChat() {
       removeMessage(assistantId);
       toast({
         title: "Chat Error",
-        description: error instanceof Error ? error.message : "The chat request failed."
+        description: getErrorMessage(error, "The chat request failed.")
       });
       throw error;
     } finally {
-      void refreshConversations();
+      void refreshConversations().catch(() => undefined);
       setStreaming(false);
     }
   }

@@ -13,7 +13,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
+import { api, getErrorMessage } from "@/lib/api";
 import { useToast } from "@/hooks/use-toast";
 import { useApprovalStore } from "@/stores/approvalStore";
 
@@ -59,7 +59,7 @@ export function ApprovalModal() {
     } catch (error) {
       toast({
         title: "Approval Error",
-        description: error instanceof Error ? error.message : "Failed to process the draft."
+        description: getErrorMessage(error, "Failed to process the draft.")
       });
     } finally {
       setIsSubmitting(false);
