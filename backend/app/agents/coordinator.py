@@ -1,15 +1,14 @@
 from __future__ import annotations
 
 import json
-from typing import Any
+from typing import Any, Dict
 
 from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware, dynamic_prompt
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import HumanMessage, ToolMessage, ToolCall
 from langgraph.types import Command
 from langgraph.runtime import Runtime
-from typing_extensions import NotRequired
 
 from app.agents.context import AgentContext
 from app.agents.llm import get_llm
@@ -19,11 +18,11 @@ from app.agents.tools.draft_tools import send_email
 from app.agents.web_search_agent import get_web_search_agent
 
 
-class EmailAgentState(AgentState[Any]):
-    current_draft: NotRequired[dict[str, Any] | None]
-    research_summary: NotRequired[str | None]
-    draft_feedback: NotRequired[str | None]
-    needs_research_refresh: NotRequired[bool]
+class EmailAgentState(AgentState):
+    current_draft = Dict[str, Any] | None
+    research_summary = str | None
+    draft_feedback = str | None
+    needs_research_refresh = bool
 
 COORDINATOR_SYSTEM_PROMPT = """
 You are the central coordinator of an email assistant system. Understand the user's request
@@ -44,8 +43,7 @@ Routing guidance:
 Critical workflow rules:
 - Always ask for missing recipient details before drafting a fresh email.
 - call_mailing_agent writes the latest draft into state.current_draft and returns the draft JSON.
-- state.current_draft contains keys:
-  to, subject, body, draft_type, in_reply_to, thread_id
+- state.current_draft contains keys: to, subject, body, draft_type, in_reply_to, thread_id
 - After call_mailing_agent prepares a complete draft, call send_email with the exact values from state.current_draft.
 - Never claim an email was sent unless send_email confirms success.
 - If send_email is rejected, read the rejection feedback from the tool message and use state.draft_feedback while rewriting the draft.
@@ -55,8 +53,8 @@ Critical workflow rules:
 
 
 @dynamic_prompt
-def coordinator_prompt(request) -> str:
-    state = request.state
+def coordinator_prompt(runtime: ToolRuntime) -> str:
+    state = runtime.state
     draft = state.get("current_draft")
     feedback = state.get("draft_feedback")
     needs_research_refresh = state.get("needs_research_refresh")
@@ -70,9 +68,7 @@ def coordinator_prompt(request) -> str:
     if research_summary:
         sections.append(f"Stored research summary:\n{research_summary}")
     if needs_research_refresh:
-        sections.append(
-            "The current feedback likely requires refreshed or expanded research before the next draft."
-        )
+        sections.append("The current feedback likely requires refreshed or expanded research before the next draft.")
     return "\n\n".join(sections)
 
 
@@ -80,17 +76,15 @@ def _message_content(value) -> str:
     if isinstance(value, str):
         return value
     if isinstance(value, list):
-        return "\n".join(
-            item.get("text", "") if isinstance(item, dict) else str(item)
-            for item in value
-        ).strip()
+        text = "\n".join(item.get("text", "") if isinstance(item, dict) else str(item) for item in value)
+        return text.strip()
     return str(value)
 
 
 def _send_email_review_description(
-    tool_call: dict,
+    tool_call: ToolCall,
     state: EmailAgentState,
-    _runtime: Runtime[AgentContext],
+    runtime: Runtime[AgentContext],
 ) -> str:
     draft = state.get("current_draft") or tool_call.get("args", {})
     draft_type = str(draft.get("draft_type") or "fresh")
