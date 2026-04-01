@@ -72,6 +72,7 @@ async def send_email(
             "title": "Email Sent",
             "body": f"Your email to {to} has been sent.",
             "draft_id": str(draft.id) if draft is not None else None,
+            "conversation_id": runtime.context.conversation_id,
             "gmail_message_id": gmail_id,
         }
         await runtime.context.notification_service.create_notification(
@@ -82,6 +83,7 @@ async def send_email(
             body=f"Your email to {to} has been sent.",
             metadata={
                 "draft_id": str(draft.id) if draft is not None else None,
+                "conversation_id": runtime.context.conversation_id,
                 "gmail_message_id": gmail_id,
                 "draft_type": draft_type,
             },
@@ -112,7 +114,10 @@ async def send_email(
             type="error",
             title="Email Send Failed",
             body=str(exc),
-            metadata={"draft_id": str(draft.id) if draft is not None else None},
+            metadata={
+                "draft_id": str(draft.id) if draft is not None else None,
+                "conversation_id": runtime.context.conversation_id,
+            },
         )
         await runtime.context.notification_service.broadcast(
             runtime.context.user_id,
@@ -121,6 +126,7 @@ async def send_email(
                 "title": "Email Send Failed",
                 "content": str(exc),
                 "draft_id": str(draft.id) if draft is not None else None,
+                "conversation_id": runtime.context.conversation_id,
             },
         )
         return Command(

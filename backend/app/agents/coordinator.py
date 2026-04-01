@@ -6,7 +6,7 @@ from typing import Any, Dict
 from langchain.agents import AgentState, create_agent
 from langchain.agents.middleware import HumanInTheLoopMiddleware, dynamic_prompt
 from langchain.tools import ToolRuntime, tool
-from langchain_core.messages import HumanMessage, ToolMessage, ToolCall
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, ToolCall
 from langgraph.types import Command
 from langgraph.runtime import Runtime
 
@@ -104,6 +104,21 @@ def _tool_message(tool_name: str, content: str, tool_call_id: str | None) -> Too
     )
 
 
+def _subagent_tool_outputs(messages: list[BaseMessage]) -> list[dict[str, Any]]:
+    outputs: list[dict[str, Any]] = []
+    for message in messages:
+        if not isinstance(message, ToolMessage):
+            continue
+        outputs.append(
+            {
+                "name": message.name or "",
+                "content": _message_content(message.content),
+                "status": getattr(message, "status", None),
+            }
+        )
+    return outputs
+
+
 def _normalize_draft(payload: dict[str, Any]) -> dict[str, Any]:
     required_keys = {"to", "subject", "body", "draft_type", "in_reply_to", "thread_id"}
     missing = required_keys.difference(payload)
@@ -143,7 +158,20 @@ def make_coordinator_tools(checkpointer):
             context=runtime.context,
             config={"configurable": {"thread_id": f"mail_reader_{runtime.context.user_id}"}},
         )
-        return _message_content(result["messages"][-1].content)
+        summary = _message_content(result["messages"][-1].content)
+        payload = json.dumps(
+            {
+                "summary": summary,
+                "tool_outputs": _subagent_tool_outputs(result["messages"]),
+            }
+        )
+        return Command(
+            update={
+                "messages": [
+                    _tool_message("call_mail_reader", payload, runtime.tool_call_id)
+                ],
+            }
+        )
 
     @tool
     async def call_web_search(topic: str, runtime: ToolRuntime[AgentContext]) -> str:
@@ -154,12 +182,18 @@ def make_coordinator_tools(checkpointer):
             config={"configurable": {"thread_id": f"search_{runtime.context.user_id}"}},
         )
         summary = _message_content(result["messages"][-1].content)
+        payload = json.dumps(
+            {
+                "summary": summary,
+                "tool_outputs": _subagent_tool_outputs(result["messages"]),
+            }
+        )
         return Command(
             update={
                 "research_summary": summary,
                 "needs_research_refresh": False,
                 "messages": [
-                    _tool_message("call_web_search", summary, runtime.tool_call_id)
+                    _tool_message("call_web_search", payload, runtime.tool_call_id)
                 ],
             }
         )

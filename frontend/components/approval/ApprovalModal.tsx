@@ -18,7 +18,7 @@ import { useToast } from "@/hooks/use-toast";
 import { useApprovalStore } from "@/stores/approvalStore";
 
 export function ApprovalModal() {
-  const { draft, originalDraft, isOpen, close, updateDraft, feedback, setFeedback } = useApprovalStore();
+  const { draft, originalDraft, isOpen, close, markPending, clearPending, updateDraft, feedback, setFeedback } = useApprovalStore();
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -35,20 +35,23 @@ export function ApprovalModal() {
     }
 
     setIsSubmitting(true);
+    const submittedDraft = { ...draft };
+    markPending(submittedDraft.id);
+    close();
+
     try {
       const isEdited =
-        draft.to !== originalDraft?.to ||
-        draft.subject !== originalDraft?.subject ||
-        draft.body !== originalDraft?.body;
+        submittedDraft.to !== originalDraft?.to ||
+        submittedDraft.subject !== originalDraft?.subject ||
+        submittedDraft.body !== originalDraft?.body;
 
-      await api.post(`/approve/${draft.id}`, {
+      await api.post(`/approve/${submittedDraft.id}`, {
         action: action === "approve" ? (isEdited ? "edit" : "approve") : "reject",
-        edited_to: draft.to,
-        edited_subject: draft.subject,
-        edited_body: draft.body,
+        edited_to: submittedDraft.to,
+        edited_subject: submittedDraft.subject,
+        edited_body: submittedDraft.body,
         feedback: feedback.trim() || undefined
       });
-      close();
       toast({
         title: action === "reject" ? "Revision Requested" : "Approval Submitted",
         description:
@@ -57,6 +60,9 @@ export function ApprovalModal() {
             : "The draft was resumed and the agent is finishing the workflow."
       });
     } catch (error) {
+      clearPending(submittedDraft.id);
+      useApprovalStore.getState().open(submittedDraft);
+      useApprovalStore.getState().setFeedback(feedback);
       toast({
         title: "Approval Error",
         description: getErrorMessage(error, "Failed to process the draft.")

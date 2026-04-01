@@ -41,10 +41,12 @@ def is_hitl_interrupt(interrupt_value: Any) -> bool:
 def serialize_draft_for_frontend(draft: EmailDraft, *, description: str | None = None) -> dict[str, Any]:
     return {
         "id": str(draft.id),
+        "conversation_id": str(draft.conversation_id) if draft.conversation_id else None,
         "to": draft.edited_to or draft.to_address,
         "subject": draft.edited_subject or draft.subject,
         "body": draft.edited_body or draft.body,
         "draft_type": draft.draft_type,
+        "status": draft.status,
         "description": description,
     }
 
@@ -81,6 +83,7 @@ async def persist_hitl_interrupts(
         event = {
             "type": "approval_required",
             "draft_id": str(draft.id),
+            "conversation_id": conversation_id,
             "draft": draft_payload,
             "description": description,
         }
@@ -92,6 +95,7 @@ async def persist_hitl_interrupts(
             body="A draft is waiting for your approval.",
             metadata={
                 "draft_id": str(draft.id),
+                "conversation_id": conversation_id,
                 "draft": draft_payload,
                 "description": description,
             },

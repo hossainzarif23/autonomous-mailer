@@ -26,5 +26,8 @@ class ChatMessageResponse(BaseModel):
     id: str
     role: str
     content: str
+    content_blocks: list[dict[str, Any]] | None = None
+    status: str | None = None
+    turn_id: str | None = None
     metadata: dict[str, Any] | None = None
     created_at: str

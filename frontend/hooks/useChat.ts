@@ -3,7 +3,15 @@
 import { api, getErrorMessage } from "@/lib/api";
 import { useChatStore } from "@/stores/chatStore";
 import { useToast } from "@/hooks/use-toast";
-import type { ChatMessage, SSEEvent } from "@/types";
+import type { ChatContentBlock, ChatMessage, SSEEvent } from "@/types";
+
+function buildMarkdownBlock(content: string): ChatContentBlock {
+  return { type: "markdown", content };
+}
+
+function buildStatusBlock(label: string, tone: "neutral" | "pending" | "success" | "warning" | "error" = "neutral", detail?: string): ChatContentBlock {
+  return { type: "status", label, tone, detail };
+}
 
 export function useChat() {
   const {
@@ -25,6 +33,20 @@ export function useChat() {
     return response.data;
   }
 
+  async function hydrateConversation(conversationId: string, options?: { setActive?: boolean }) {
+    const response = await api.get<ChatMessage[]>(`/chat/history/${conversationId}`);
+    if (options?.setActive !== false) {
+      setActiveConversationId(conversationId);
+    }
+    setMessages(
+      response.data.map((message) => ({
+        ...message,
+        content_blocks: message.content_blocks && message.content_blocks.length > 0 ? message.content_blocks : [buildMarkdownBlock(message.content)]
+      }))
+    );
+    return response.data;
+  }
+
   async function ensureConversationId() {
     if (activeConversationId) {
       return activeConversationId;
@@ -42,9 +64,7 @@ export function useChat() {
     }
 
     try {
-      const response = await api.get<ChatMessage[]>(`/chat/history/${conversationId}`);
-      setActiveConversationId(conversationId);
-      setMessages(response.data);
+      await hydrateConversation(conversationId);
     } catch (error) {
       const message = getErrorMessage(error, "Failed to load the selected conversation.");
       toast({
@@ -52,6 +72,14 @@ export function useChat() {
         description: message
       });
       throw error;
+    }
+  }
+
+  async function reloadConversation(conversationId: string) {
+    try {
+      await hydrateConversation(conversationId, { setActive: false });
+    } catch {
+      // Preserve current UI if background hydration fails.
     }
   }
 
@@ -84,6 +112,8 @@ export function useChat() {
       id: crypto.randomUUID(),
       role: "user",
       content: trimmed,
+      content_blocks: [buildMarkdownBlock(trimmed)],
+      status: "complete",
       created_at: createdAt
     };
     const assistantId = crypto.randomUUID();
@@ -93,6 +123,8 @@ export function useChat() {
       id: assistantId,
       role: "assistant",
       content: "",
+      content_blocks: [buildStatusBlock("Thinking", "pending", "The coordinator is working through your request.")],
+      status: "streaming",
       created_at: createdAt
     });
     setStreaming(true);
@@ -121,6 +153,7 @@ export function useChat() {
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantContent = "";
+      let didCompleteTurn = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -143,20 +176,44 @@ export function useChat() {
           }
 
           const payload = JSON.parse(dataLine.slice(5).trim()) as SSEEvent;
-          if (payload.type === "token" && payload.content) {
+          if (payload.type === "turn_started") {
+            updateMessage(assistantId, {
+              turn_id: payload.turn_id ?? undefined
+            });
+          } else if (payload.type === "token" && payload.content) {
             assistantContent += payload.content;
-            updateMessage(assistantId, { content: assistantContent });
+            updateMessage(assistantId, {
+              content: assistantContent,
+              status: "streaming",
+              content_blocks: [
+                buildStatusBlock("Working", "pending", "The agent is preparing the response."),
+                buildMarkdownBlock(assistantContent)
+              ]
+            });
           } else if (payload.type === "approval_pending") {
             updateMessage(assistantId, {
-              content: assistantContent || "Draft prepared and waiting for approval.",
+              status: "waiting_approval",
+              content: assistantContent,
+              content_blocks: [
+                buildStatusBlock("Waiting for approval", "pending", "A draft is ready and requires human review."),
+                ...(assistantContent ? [buildMarkdownBlock(assistantContent)] : [])
+              ],
               metadata: {
                 draft_id: payload.draft_id,
                 is_waiting_approval: true
               }
             });
+            await reloadConversation(conversationId);
+          } else if (payload.type === "turn_completed" || payload.type === "done") {
+            didCompleteTurn = true;
+            await reloadConversation(conversationId);
           } else if (payload.type === "error") {
             const errorText = payload.content || "The chat request failed.";
-            updateMessage(assistantId, { content: errorText });
+            updateMessage(assistantId, {
+              content: errorText,
+              status: "error",
+              content_blocks: [buildStatusBlock("Request failed", "error", errorText)]
+            });
             toast({
               title: "Chat Error",
               description: errorText
@@ -165,11 +222,13 @@ export function useChat() {
         }
       }
 
-      if (!assistantContent) {
-        const assistantMessage = useChatStore.getState().messages.find((message) => message.id === assistantId);
-        if (!assistantMessage?.content) {
-          removeMessage(assistantId);
-        }
+      if (!didCompleteTurn) {
+        await reloadConversation(conversationId);
+      }
+
+      const assistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
+      if (!assistantMessage?.content && (!assistantMessage?.content_blocks || assistantMessage.content_blocks.length === 0)) {
+        removeMessage(assistantId);
       }
     } catch (error) {
       removeMessage(assistantId);
@@ -190,6 +249,7 @@ export function useChat() {
     isStreaming,
     loadConversation,
     refreshConversations,
+    reloadConversation,
     sendMessage
   };
 }

@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 :root {
-  --background: 42 38% 96%;
+  --background: 40 24% 97%;
   --foreground: 215 39% 11%;
   --card: 0 0% 100%;
   --card-foreground: 215 39% 11%;
@@ -11,9 +11,9 @@
   --popover-foreground: 215 39% 11%;
   --primary: 153 64% 29%;
   --primary-foreground: 48 100% 97%;
-  --secondary: 36 65% 90%;
+  --secondary: 36 40% 92%;
   --secondary-foreground: 215 39% 11%;
-  --muted: 44 43% 92%;
+  --muted: 42 28% 93%;
   --muted-foreground: 215 16% 37%;
   --accent: 17 91% 61%;
   --accent-foreground: 48 100% 97%;
@@ -32,9 +32,13 @@
 body {
   min-height: 100vh;
   background:
-    radial-gradient(circle at top left, rgba(249, 115, 22, 0.15), transparent 32%),
-    radial-gradient(circle at bottom right, rgba(5, 150, 105, 0.16), transparent 28%),
+    radial-gradient(circle at top left, rgba(249, 115, 22, 0.08), transparent 28%),
+    radial-gradient(circle at bottom right, rgba(5, 150, 105, 0.1), transparent 24%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.75), rgba(248, 250, 252, 0.92)),
     hsl(var(--background));
   color: hsl(var(--foreground));
 }
 
+::selection {
+  background: rgba(5, 150, 105, 0.18);
+}

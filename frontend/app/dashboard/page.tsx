@@ -27,7 +27,7 @@ export default function DashboardPage() {
   return (
     <main className="grid min-h-screen grid-cols-1 lg:grid-cols-[300px_minmax(0,1fr)]">
       <ConversationSidebar />
-      <section className="flex min-h-screen flex-col">
+      <section className="flex min-h-screen flex-col bg-[linear-gradient(180deg,rgba(248,250,252,0.52),rgba(255,255,255,0.72))]">
         <ChatWindow />
         <InputBar />
       </section>

@@ -151,6 +151,27 @@ async def approve_draft(
         draft.status = "rejected"
         draft.updated_at = datetime.now(UTC)
         await db.commit()
+        await notification_service.create_notification(
+            db,
+            str(current_user.id),
+            type="email_rejected",
+            title="Revision Requested",
+            body="The draft was rejected and will be rewritten.",
+            metadata={
+                "draft_id": str(draft.id),
+                "conversation_id": str(draft.conversation_id),
+            },
+        )
+        await notification_service.broadcast(
+            str(current_user.id),
+            {
+                "type": "email_rejected",
+                "title": "Revision Requested",
+                "body": "The draft was rejected and will be rewritten.",
+                "draft_id": str(draft.id),
+                "conversation_id": str(draft.conversation_id),
+            },
+        )
 
     access_token = await get_valid_access_token(str(current_user.id), db)
     context = AgentContext(
