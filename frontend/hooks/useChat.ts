@@ -9,13 +9,22 @@ export function useChat() {
   const {
     activeConversationId,
     appendMessage,
+    setConversations,
     setActiveConversationId,
+    setMessages,
     setStreaming,
     updateMessage,
     removeMessage,
     isStreaming
   } = useChatStore();
   const { toast } = useToast();
+
+  async function refreshConversations() {
+    const response = await api.get<{ id: string; title: string | null; created_at: string; updated_at: string }[]>(
+      "/chat/conversations"
+    );
+    setConversations(response.data);
+  }
 
   async function ensureConversationId() {
     if (activeConversationId) {
@@ -24,6 +33,25 @@ export function useChat() {
 
     const response = await api.post<{ id: string }>("/chat/conversations");
     setActiveConversationId(response.data.id);
+    await refreshConversations();
+    return response.data.id;
+  }
+
+  async function loadConversation(conversationId: string) {
+    if (conversationId === activeConversationId) {
+      return;
+    }
+
+    const response = await api.get<ChatMessage[]>(`/chat/history/${conversationId}`);
+    setActiveConversationId(conversationId);
+    setMessages(response.data);
+  }
+
+  async function createConversation() {
+    const response = await api.post<{ id: string }>("/chat/conversations");
+    setActiveConversationId(response.data.id);
+    setMessages([]);
+    await refreshConversations();
     return response.data.id;
   }
 
@@ -134,13 +162,17 @@ export function useChat() {
       });
       throw error;
     } finally {
+      void refreshConversations();
       setStreaming(false);
     }
   }
 
   return {
     activeConversationId,
+    createConversation,
     isStreaming,
+    loadConversation,
+    refreshConversations,
     sendMessage
   };
 }
