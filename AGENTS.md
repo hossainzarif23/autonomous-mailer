@@ -8,8 +8,8 @@
 For full product context, read [README.md](./README.md). For the phased build plan and architecture notes, read [IMPLEMENTATION_PLAN_V2.md](./IMPLEMENTATION_PLAN_V2.md).
 
 ## Repository Map
-- `backend/`: FastAPI API for auth (Google OAuth), Gmail integration, LangChain/LangGraph agent orchestration, SSE streaming, HITL approval resume, and Postgres persistence. Read `backend/AGENTS.md` before changing backend code.
-- `frontend/`: Next.js 14 App Router client for login, dashboard, conversation sidebar, structured chat rendering, approval modal, and SSE notifications. Read `frontend/AGENTS.md` before changing frontend code.
+- `backend/`: FastAPI API for auth (Google OAuth), Gmail integration, LangChain/LangGraph agent orchestration, SSE streaming, HITL approval resume, and Postgres persistence. Read `backend/AGENTS.md` before changing backend code; see `backend/docs/` for its detailed architecture and environment.
+- `frontend/`: Next.js 14 App Router client for login, dashboard, conversation sidebar, structured chat rendering, approval modal, and SSE notifications. Read `frontend/AGENTS.md` before changing frontend code; see `frontend/docs/` for its detailed architecture and environment.
 - `README.md`: current source of truth for product purpose, status, architecture, API overview, and env vars.
 - `IMPLEMENTATION_PLAN_V2.md`: original phased implementation plan and architecture direction.
 
@@ -38,7 +38,7 @@ See each package's AGENTS.md for full details and exact invocations.
 - Prefer local skills before remote docs lookups; use the LangChain docs MCP server only when current official references are still needed after the skills.
 
 ## Pointers
-- Read `frontend/AGENTS.md` for frontend-local commands, UI constraints, and component guidance.
-- Read `backend/AGENTS.md` for backend-local commands, API constraints, and LangChain/LangGraph integration guidance.
+- Read `frontend/AGENTS.md` for frontend-local commands, UI constraints, and component guidance; `frontend/docs/architecture.md` and `frontend/docs/environment.md` for frontend detail.
+- Read `backend/AGENTS.md` for backend-local commands, API constraints, and LangChain/LangGraph integration guidance; `backend/docs/architecture.md` and `backend/docs/environment.md` for backend detail.
 - Read `README.md` for the full product, API, and env-var reference.
-- Keep deep, evolving knowledge in normal docs rather than growing this root file.
+- Keep deep, evolving knowledge in the `docs/` directories rather than growing the AGENTS.md files.
