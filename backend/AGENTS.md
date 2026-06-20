@@ -70,6 +70,18 @@ Notes:
 - For OpenRouter model issues, confirm the current model ID in `app/agents/llm.py`.
 - Prefer the local LangChain/LangGraph skills first. If they leave uncertainty about current APIs, consult the LangChain docs MCP server at `https://docs.langchain.com/mcp`.
 
+## Required Skills
+- **Use `langchain-fundamentals`** for `create_agent`, the `@tool` decorator, structured output, model/tool integration, and orchestration patterns.
+- **Use `langchain-middleware`** for `HumanInTheLoopMiddleware`, `wrap_tool_call`, and `Command(resume=...)` approval/resume patterns.
+- **Use `langchain-dependencies`** for package setup, provider package selection, and versioning.
+- **Use `langgraph-fundamentals`** for graph structure, state schema design, `Command`/`Send` routing, and streaming modes.
+- **Use `langgraph-human-in-the-loop`** for `interrupt()`/resume, the `send_email` approval boundary, and idempotency-before-interrupt rules.
+- **Use `langgraph-persistence`** for the `AsyncPostgresSaver` checkpointer, `thread_id` scoping, and resumable HITL behavior.
+- **Use `langsmith-trace`** for tracing, trace inspection, and runtime debugging.
+- **Use `fastapi`** for API structure, dependency patterns, modern FastAPI conventions, and Pydantic usage.
+
+MCP server (fallback reference only, after the skills above): the LangChain docs MCP server at `https://docs.langchain.com/mcp`.
+
 ## Related Docs
 - [docs/architecture.md](docs/architecture.md) — full backend architecture (routers, agents, services, models, flows, thread scoping).
 - [docs/environment.md](docs/environment.md) — all env vars and the `DATABASE_URL` vs `DATABASE_URL_PSYCOPG` distinction.
