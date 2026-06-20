@@ -27,6 +27,8 @@ The implementation plan that guided the build is available in [`IMPLEMENTATION_P
 
 ## Architecture
 
+> Looking for a visual? See the **[Architecture Overview diagram](./docs/architecture-overview.html)** — a system-level HTML/SVG companion to the prose specs below. For implementation detail, read [`backend/docs/architecture.md`](./backend/docs/architecture.md) and [`frontend/docs/architecture.md`](./frontend/docs/architecture.md).
+
 ### Backend
 
 The backend is a FastAPI app in [`backend/app`](./backend/app) with these major areas:

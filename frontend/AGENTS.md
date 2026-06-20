@@ -30,6 +30,14 @@ Notes:
 - App Router with `app/`; server components for cookie-reading routes, client islands marked `"use client"` for everything interactive (all `components/*` except `MessageBubble.tsx`, all `hooks/*`, all `stores/*`).
 - State management via Zustand stores as the single UI source of truth; components select slices directly.
 - REST via the shared axios instance in `lib/api.ts` (cookies, 401 auto-redirect). The **streaming** chat endpoint uses raw `fetch` + `ReadableStream` (axios can't stream). Notifications use browser `EventSource`. All send `withCredentials`/`credentials: "include"`.
+- Pick the data-access path by need (all send credentials and hit `NEXT_PUBLIC_API_URL`):
+
+  | Need | Use | Why |
+  |---|---|---|
+  | One-shot REST call | shared axios `api` instance (`lib/api.ts`) | JSON in/out, 401 auto-redirect, uniform error normalization |
+  | Streaming chat (SSE) | raw `fetch` + `ReadableStream` | axios can't stream tokens incrementally |
+  | Long-lived notifications (SSE) | browser `EventSource` (`useSSE.ts`) | native auto-reconnect for server-pushed events |
+
 - Imports use the `@/*` alias (e.g. `@/stores/chatStore`, `@/components/ui/button`, `@/lib/api`).
 - UI: shadcn/ui primitives + Tailwind; custom HSL CSS-variable theme in `globals.css` (slate base, emerald primary, orange accent, `--radius: 1rem`); heavy large rounded radii, layered gradients, soft shadows; `darkMode: ["class"]` configured but no dark theme defined.
 - Errors: `getErrorMessage(error, fallback)` widely; user-facing failures via `useToast`; server components rely on `error.tsx`/`global-error.tsx`.
@@ -44,8 +52,6 @@ Notes:
 - Keep the API base URL from `NEXT_PUBLIC_API_URL` (with the `http://localhost:8000/api` fallback) — it is duplicated in `api.ts`, `useChat.ts`, and `useSSE.ts`; keep them in sync.
 
 ## Don't
-- Do not put the JWT in an `Authorization` header — it is an httpOnly cookie set by the backend.
-- Do not read the token value client-side (only check cookie **presence** in `middleware.ts`/`app/page.tsx`).
 - Do not use Firebase, bearer tokens, or Next.js Server Actions/Route Handlers for core behavior — this is a client-rendered app calling the FastAPI backend.
 - Do not run `pnpm ...` — this repo uses **npm**. Do not claim a `test` script exists.
 - Do not add `output: "export"` to `next.config.js` or assume static-export behavior.

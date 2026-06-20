@@ -23,13 +23,12 @@ See each package's AGENTS.md for full details and exact invocations.
 
 ## Architecture Rules
 - Keep the split clean: backend owns auth, Gmail, agent orchestration, persistence, and all privileged operations; frontend is a client-rendered UI only.
-- Auth is cookie-based, not bearer tokens. The backend sets an httpOnly `access_token` JWT cookie during Google OAuth callback; the frontend sends it automatically via `withCredentials`. Never put tokens in Authorization headers client-side.
-- Two persistence layers share one Postgres database: app tables (users, conversations, email_drafts, notifications) managed by Alembic/SQLAlchemy, and LangGraph checkpoint tables managed automatically by `AsyncPostgresSaver.setup()` at startup.
-- `DATABASE_URL` (asyncpg, `postgresql+asyncpg://`) is for SQLAlchemy; `DATABASE_URL_PSYCOPG` (psycopg, `postgresql://`) is for LangGraph checkpointing and Alembic. Both point to the same DB.
-- The conversation ID is the coordinator's LangGraph `thread_id`. Sub-agents use user-scoped thread IDs (e.g. `mail_reader_{user_id}`).
-- The final `send_email` tool is the human-in-the-loop approval boundary. A draft is persisted before sending; LangGraph interrupts; resume happens via `Command(resume=...)`.
+- Auth is cookie-based, not bearer tokens. The backend sets an httpOnly `access_token` JWT cookie during the Google OAuth callback; the frontend sends it automatically via `withCredentials`. Never put tokens in Authorization headers client-side. (Backend owns setting the cookie; frontend only checks cookie *presence*.)
+- One Postgres database backs two persistence layers: app tables (Alembic/SQLAlchemy) and LangGraph checkpoint tables. The exact DSN env vars and startup wiring live in `backend/AGENTS.md` and `backend/docs/environment.md`.
+- Conversation IDs are the coordinator's LangGraph `thread_id`; sub-agents use user-scoped thread IDs. Thread-scoping specifics live in `backend/AGENTS.md`.
+- The final `send_email` tool is the human-in-the-loop approval boundary: a draft is persisted before sending, then LangGraph interrupts and resumes on approval. The exact HITL/resume mechanics live in `backend/AGENTS.md` and `backend/docs/architecture.md`.
 - SSE is used in two places: `/api/chat/message` for request-scoped assistant streaming, and `/api/notifications/stream` for long-lived approval/send notifications.
-- The LLM is OpenRouter via `langchain-openrouter` (see `backend/app/agents/llm.py` for the exact model). Web search is Tavily.
+- The LLM is OpenRouter via `langchain-openrouter` (exact model ID in `backend/app/agents/llm.py`); web search is Tavily.
 
 ## Workflow Rules
 - Keep changes small and scoped to the current task.

@@ -59,7 +59,6 @@ Notes:
 
 ## Don't
 - Do not move auth, Gmail, or orchestration logic into the Next.js frontend.
-- Do not put the JWT in an Authorization header client-side — it is an httpOnly cookie.
 - Do not run `uv ...` or `ruff check .` — neither uv nor ruff is set up in this repo.
 - Do not assume pytest is available — use stdlib `unittest`.
 - Do not perform the Gmail send (non-idempotent side effect) before the LangGraph `interrupt()` resumes.

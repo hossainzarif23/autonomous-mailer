@@ -13,4 +13,4 @@ frontend/node_modules/
 frontend/.next/
 dist/
 build/
-
+.codegraph/
