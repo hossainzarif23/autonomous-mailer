@@ -201,6 +201,13 @@ class StreamRouteContractTests(IsolatedAsyncioTestCase):
                 ],
             }
             yield {
+                "type": "messages",
+                "data": [
+                    SimpleNamespace(content="Safe final prose.", tool_calls=[]),
+                    {},
+                ],
+            }
+            yield {
                 "type": "updates",
                 "data": {
                     "node": {
@@ -243,10 +250,7 @@ class StreamRouteContractTests(IsolatedAsyncioTestCase):
         self.assertIn("done", event_types)
 
         token_contents = [event["content"] for event in events if event["type"] == "token"]
-        self.assertTrue(all("query" not in content for content in token_contents))
-        self.assertTrue(all("results" not in content for content in token_contents))
-        self.assertTrue(all("secret" not in content for content in token_contents))
-        self.assertTrue(all("raw" not in content for content in token_contents))
+        self.assertEqual(token_contents, ["Safe final prose."])
 
         action_started = next(event for event in events if event["type"] == "action_started")
         action_completed = next(event for event in events if event["type"] == "action_completed")
