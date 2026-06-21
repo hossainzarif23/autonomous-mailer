@@ -350,18 +350,6 @@ def _tool_call_details(chunk: Any) -> list[tuple[str, str | None]]:
     return tool_calls
 
 
-def _tool_call_signature(tool_call: Any) -> str:
-    if isinstance(tool_call, dict):
-        name = tool_call.get("name")
-        args = tool_call.get("args")
-    else:
-        name = getattr(tool_call, "name", None)
-        args = getattr(tool_call, "args", None)
-
-    signature_payload = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
-    return f"{name or ''}:{signature_payload}"
-
-
 def _tool_call_detail(tool_call: Any, *, turn_id: str, occurrence_index: int) -> tuple[str, str]:
     if isinstance(tool_call, dict):
         name = tool_call.get("name")
@@ -374,10 +362,6 @@ def _tool_call_detail(tool_call: Any, *, turn_id: str, occurrence_index: int) ->
     if tool_call_id:
         return tool_name, str(tool_call_id)
     return tool_name, f"generated:{turn_id}:{occurrence_index}"
-
-
-def _tool_message_signature(message: ToolMessage) -> str:
-    return f"{message.name or 'tool'}:{_message_text(message.content).strip()}"
 
 
 def _tool_call_names(chunk: Any) -> list[str]:
