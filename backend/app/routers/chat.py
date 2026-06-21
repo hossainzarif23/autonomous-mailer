@@ -512,11 +512,6 @@ async def stream_chat_message(
 ):
     conversation = await _get_owned_conversation(db, payload.conversation_id, current_user.id)
 
-    if conversation.title is None:
-        conversation.title = payload.message.strip()[:80] or "New conversation"
-    conversation.updated_at = datetime.now(UTC)
-    await db.commit()
-
     async def event_stream():
         turn_id = str(uuid.uuid4())
         yield _sse({"type": "turn_started", "turn_id": turn_id})
@@ -531,6 +526,10 @@ async def stream_chat_message(
                 for event in blocked_events:
                     yield event
                 return
+            if conversation.title is None:
+                conversation.title = payload.message.strip()[:80] or "New conversation"
+            conversation.updated_at = datetime.now(UTC)
+            await db.commit()
             access_token = await get_valid_access_token(str(current_user.id), db)
             context = AgentContext(
                 user_id=str(current_user.id),

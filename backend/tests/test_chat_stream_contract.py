@@ -115,3 +115,52 @@ class BlockedApprovalStreamTests(IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(blocked_events[0].split("data: ", 1)[1])["draft_id"], str(draft.id))
         mock_get_valid_access_token.assert_not_called()
         mock_get_coordinator_agent.assert_not_called()
+
+    async def test_stream_chat_message_blocked_path_emits_blocked_events_and_skips_commit_and_agent_setup(self):
+        draft = EmailDraft(
+            id=uuid.uuid4(),
+            user_id=uuid.uuid4(),
+            conversation_id=uuid.uuid4(),
+            draft_type="fresh",
+            to_address="recipient@example.com",
+            subject="Subject",
+            body="Body",
+            status="pending_approval",
+        )
+        conversation = SimpleNamespace(
+            id=uuid.uuid4(),
+            user_id=draft.user_id,
+            title=None,
+            updated_at=None,
+        )
+        payload = SimpleNamespace(conversation_id=str(draft.conversation_id), message="follow up")
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(checkpointer=SimpleNamespace())))
+        current_user = SimpleNamespace(id=draft.user_id)
+        db = SimpleNamespace(commit=AsyncMock(), refresh=AsyncMock())
+
+        with (
+            patch.object(chat, "_get_owned_conversation", AsyncMock(return_value=conversation)),
+            patch.object(chat, "_get_pending_approval_draft", AsyncMock(return_value=draft)),
+            patch.object(chat, "get_valid_access_token", AsyncMock()) as mock_get_valid_access_token,
+            patch.object(chat, "get_coordinator_agent", Mock()) as mock_get_coordinator_agent,
+        ):
+            response = await chat.stream_chat_message(
+                payload=payload,
+                request=request,
+                current_user=current_user,
+                db=db,
+            )
+
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+
+        events = [json.loads(chunk.split("data: ", 1)[1]) for chunk in chunks if chunk.startswith("data: ")]
+        self.assertEqual([event["type"] for event in events], ["turn_started", "approval_blocked", "done"])
+        self.assertEqual(events[1]["draft_id"], str(draft.id))
+        self.assertEqual(events[1]["conversation_id"], str(draft.conversation_id))
+        db.commit.assert_not_awaited()
+        self.assertIsNone(conversation.title)
+        self.assertIsNone(conversation.updated_at)
+        mock_get_valid_access_token.assert_not_called()
+        mock_get_coordinator_agent.assert_not_called()
