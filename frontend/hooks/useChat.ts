@@ -162,6 +162,7 @@ export function useChat() {
       let buffer = "";
       let assistantContent = "";
       let didCompleteTurn = false;
+      let didBlockForApproval = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -213,6 +214,7 @@ export function useChat() {
             });
           } else if (payload.type === "approval_blocked") {
             const blockedMessage = payload.content || "Review the pending draft before sending another message in this conversation.";
+            didBlockForApproval = true;
             updateMessage(assistantId, {
               content: blockedMessage,
               status: "waiting_approval",
@@ -226,7 +228,6 @@ export function useChat() {
               title: "Approval Required",
               description: blockedMessage
             });
-            await reloadConversation(conversationId);
           } else if (payload.type === "approval_pending") {
             updateMessage(assistantId, {
               status: "waiting_approval",
@@ -240,10 +241,14 @@ export function useChat() {
                 is_waiting_approval: true
               }
             });
-            await reloadConversation(conversationId);
+            if (!didBlockForApproval) {
+              await reloadConversation(conversationId);
+            }
           } else if (payload.type === "turn_completed" || payload.type === "done") {
             didCompleteTurn = true;
-            await reloadConversation(conversationId);
+            if (!didBlockForApproval) {
+              await reloadConversation(conversationId);
+            }
           } else if (payload.type === "error") {
             const errorText = payload.content || "The chat request failed.";
             updateMessage(assistantId, {
@@ -259,7 +264,7 @@ export function useChat() {
         }
       }
 
-      if (!didCompleteTurn) {
+      if (!didCompleteTurn && !didBlockForApproval) {
         await reloadConversation(conversationId);
       }
 
