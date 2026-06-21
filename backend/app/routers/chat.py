@@ -64,6 +64,16 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _approval_blocked_event(*, draft_id: str, conversation_id: str, turn_id: str) -> dict[str, Any]:
+    return {
+        "type": "approval_blocked",
+        "draft_id": draft_id,
+        "conversation_id": conversation_id,
+        "turn_id": turn_id,
+        "content": "Review the pending draft before sending another message in this conversation.",
+    }
+
+
 def _markdown_block(content: str) -> dict[str, Any]:
     return {"type": "markdown", "content": content}
 
@@ -387,6 +397,25 @@ def _serialize_history(messages: list[BaseMessage], drafts: list[EmailDraft]) ->
     return serialized
 
 
+async def _get_pending_approval_draft(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    conversation_id: str,
+) -> EmailDraft | None:
+    result = await db.scalars(
+        select(EmailDraft)
+        .where(
+            EmailDraft.user_id == user_id,
+            EmailDraft.conversation_id == uuid.UUID(conversation_id),
+            EmailDraft.status == "pending_approval",
+        )
+        .order_by(desc(EmailDraft.created_at))
+        .limit(1)
+    )
+    return result.first()
+
+
 async def _get_owned_conversation(db: AsyncSession, conversation_id: str, user_id: uuid.UUID) -> Conversation:
     conversation = await db.get(Conversation, uuid.UUID(conversation_id))
     if conversation is None or conversation.user_id != user_id:
@@ -456,11 +485,26 @@ async def stream_chat_message(
         conversation.title = payload.message.strip()[:80] or "New conversation"
     conversation.updated_at = datetime.now(UTC)
     await db.commit()
+    pending_draft = await _get_pending_approval_draft(
+        db,
+        user_id=current_user.id,
+        conversation_id=payload.conversation_id,
+    )
 
     async def event_stream():
         turn_id = str(uuid.uuid4())
         yield _sse({"type": "turn_started", "turn_id": turn_id})
         try:
+            if pending_draft is not None:
+                yield _sse(
+                    _approval_blocked_event(
+                        draft_id=str(pending_draft.id),
+                        conversation_id=payload.conversation_id,
+                        turn_id=turn_id,
+                    )
+                )
+                yield _sse({"type": "done", "turn_id": turn_id})
+                return
             access_token = await get_valid_access_token(str(current_user.id), db)
             context = AgentContext(
                 user_id=str(current_user.id),
