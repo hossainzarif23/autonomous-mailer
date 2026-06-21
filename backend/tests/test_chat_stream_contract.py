@@ -166,6 +166,94 @@ class BlockedApprovalStreamTests(IsolatedAsyncioTestCase):
         mock_get_coordinator_agent.assert_not_called()
 
 
+class StreamRouteContractTests(IsolatedAsyncioTestCase):
+    async def test_stream_chat_message_preserves_tool_call_ids_and_filters_raw_tool_payloads(self):
+        payload = SimpleNamespace(conversation_id=str(uuid.uuid4()), message="research AI")
+        current_user = SimpleNamespace(id=uuid.uuid4())
+        conversation = SimpleNamespace(
+            id=uuid.UUID(payload.conversation_id),
+            user_id=current_user.id,
+            title=None,
+            updated_at=None,
+        )
+        db = SimpleNamespace(commit=AsyncMock())
+        request = SimpleNamespace(app=SimpleNamespace(state=SimpleNamespace(checkpointer=object())))
+
+        async def fake_astream(*_args, **_kwargs):
+            yield {
+                "type": "messages",
+                "data": [
+                    SimpleNamespace(
+                        content="",
+                        tool_calls=[{"name": "call_web_search", "id": "call-1", "args": {"topic": "AI"}}],
+                    ),
+                    {},
+                ],
+            }
+            yield {
+                "type": "messages",
+                "data": [
+                    SimpleNamespace(
+                        content='{"query":"AI","results":[{"url":"https://example.com"}]}',
+                        tool_calls=[],
+                    ),
+                    {},
+                ],
+            }
+            yield {
+                "type": "updates",
+                "data": {
+                    "node": {
+                        "messages": [
+                            chat.ToolMessage(
+                                content='{"secret":"raw"}',
+                                name="call_web_search",
+                                tool_call_id="call-1",
+                            )
+                        ]
+                    }
+                },
+            }
+
+        fake_coordinator = SimpleNamespace(astream=fake_astream)
+
+        with (
+            patch.object(chat, "_get_owned_conversation", AsyncMock(return_value=conversation)),
+            patch.object(chat, "_get_pending_approval_draft", AsyncMock(return_value=None)),
+            patch.object(chat, "get_valid_access_token", AsyncMock(return_value="access-token")),
+            patch.object(chat, "GmailService", Mock(return_value=SimpleNamespace())),
+            patch.object(chat, "get_coordinator_agent", Mock(return_value=fake_coordinator)),
+        ):
+            response = await chat.stream_chat_message(
+                payload=payload,
+                request=request,
+                current_user=current_user,
+                db=db,
+            )
+
+            chunks: list[str] = []
+            async for chunk in response.body_iterator:
+                chunks.append(chunk.decode() if isinstance(chunk, bytes) else chunk)
+
+        events = [json.loads(chunk.split("data: ", 1)[1]) for chunk in chunks if chunk.startswith("data: ")]
+        event_types = [event["type"] for event in events]
+        self.assertEqual(event_types.count("action_started"), 1)
+        self.assertEqual(event_types.count("action_completed"), 1)
+        self.assertIn("turn_completed", event_types)
+        self.assertIn("done", event_types)
+
+        token_contents = [event["content"] for event in events if event["type"] == "token"]
+        self.assertTrue(all("query" not in content for content in token_contents))
+        self.assertTrue(all("results" not in content for content in token_contents))
+        self.assertTrue(all("secret" not in content for content in token_contents))
+        self.assertTrue(all("raw" not in content for content in token_contents))
+
+        action_started = next(event for event in events if event["type"] == "action_started")
+        action_completed = next(event for event in events if event["type"] == "action_completed")
+        self.assertEqual(action_started["tool_call_id"], "call-1")
+        self.assertEqual(action_completed["tool_call_id"], "call-1")
+
+
 class StreamFilteringTests(TestCase):
     def test_tool_call_chunks_do_not_emit_tokens(self):
         chunk = SimpleNamespace(
