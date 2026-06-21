@@ -19,7 +19,7 @@ def get_llm() -> ChatGoogleGenerativeAI:
         if settings.LANGSMITH_API_KEY:
             os.environ["LANGSMITH_API_KEY"] = settings.LANGSMITH_API_KEY
 
-    ChatGoogleGenerativeAI(
+    return ChatGoogleGenerativeAI(
         model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
         google_api_key=os.getenv("GOOGLE_API_KEY"),
         temperature=0.7,
