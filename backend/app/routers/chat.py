@@ -350,6 +350,36 @@ def _tool_call_details(chunk: Any) -> list[tuple[str, str | None]]:
     return tool_calls
 
 
+def _tool_call_signature(tool_call: Any) -> str:
+    if isinstance(tool_call, dict):
+        name = tool_call.get("name")
+        args = tool_call.get("args")
+    else:
+        name = getattr(tool_call, "name", None)
+        args = getattr(tool_call, "args", None)
+
+    signature_payload = json.dumps(args, sort_keys=True, separators=(",", ":"), default=str)
+    return f"{name or ''}:{signature_payload}"
+
+
+def _tool_call_detail(tool_call: Any, *, turn_id: str, occurrence_index: int) -> tuple[str, str]:
+    if isinstance(tool_call, dict):
+        name = tool_call.get("name")
+        tool_call_id = tool_call.get("id")
+    else:
+        name = getattr(tool_call, "name", None)
+        tool_call_id = getattr(tool_call, "id", None)
+
+    tool_name = str(name or "tool")
+    if tool_call_id:
+        return tool_name, str(tool_call_id)
+    return tool_name, f"generated:{turn_id}:{occurrence_index}"
+
+
+def _tool_message_signature(message: ToolMessage) -> str:
+    return f"{message.name or 'tool'}:{_message_text(message.content).strip()}"
+
+
 def _tool_call_names(chunk: Any) -> list[str]:
     return [name for name, _tool_call_id in _tool_call_details(chunk)]
 
@@ -585,6 +615,10 @@ async def stream_chat_message(
         turn_id = str(uuid.uuid4())
         seen_started_tool_call_ids: set[str] = set()
         seen_completed_tool_call_ids: set[str] = set()
+        seen_idless_started_signatures: set[str] = set()
+        seen_idless_completed_signatures: set[str] = set()
+        pending_idless_tool_call_ids_by_name: dict[str, list[str]] = {}
+        generated_tool_call_index = 0
         yield _sse({"type": "turn_started", "turn_id": turn_id})
         try:
             blocked_events = await _pending_approval_blocked_stream_events(
@@ -621,10 +655,26 @@ async def stream_chat_message(
             ):
                 if part["type"] == "messages":
                     chunk, _metadata = part["data"]
-                    tool_calls = _tool_call_details(chunk)
+                    tool_calls = getattr(chunk, "tool_calls", None) or []
                     if tool_calls:
-                        for tool_name, tool_call_id in tool_calls:
-                            if tool_call_id is not None:
+                        for tool_call in tool_calls:
+                            if isinstance(tool_call, dict):
+                                raw_tool_call_id = tool_call.get("id")
+                            else:
+                                raw_tool_call_id = getattr(tool_call, "id", None)
+                            tool_name, tool_call_id = _tool_call_detail(
+                                tool_call,
+                                turn_id=turn_id,
+                                occurrence_index=generated_tool_call_index + 1,
+                            )
+                            if not raw_tool_call_id:
+                                signature = _tool_call_signature(tool_call)
+                                if signature in seen_idless_started_signatures:
+                                    continue
+                                seen_idless_started_signatures.add(signature)
+                                generated_tool_call_index += 1
+                                pending_idless_tool_call_ids_by_name.setdefault(tool_name, []).append(tool_call_id)
+                            else:
                                 if tool_call_id in seen_started_tool_call_ids:
                                     continue
                                 seen_started_tool_call_ids.add(tool_call_id)
@@ -647,7 +697,18 @@ async def stream_chat_message(
                         for message in node_update.get("messages", []):
                             if isinstance(message, ToolMessage) and message.name:
                                 tool_call_id = getattr(message, "tool_call_id", None)
-                                if tool_call_id is not None:
+                                if not tool_call_id:
+                                    signature = _tool_message_signature(message)
+                                    if signature in seen_idless_completed_signatures:
+                                        continue
+                                    seen_idless_completed_signatures.add(signature)
+                                    pending_ids = pending_idless_tool_call_ids_by_name.get(message.name)
+                                    if pending_ids:
+                                        tool_call_id = pending_ids.pop(0)
+                                    else:
+                                        generated_tool_call_index += 1
+                                        tool_call_id = f"generated:{turn_id}:{generated_tool_call_index}"
+                                else:
                                     if tool_call_id in seen_completed_tool_call_ids:
                                         continue
                                     seen_completed_tool_call_ids.add(tool_call_id)
