@@ -36,6 +36,29 @@ See each package's AGENTS.md for full details and exact invocations.
 - Prefer local verification (backend compile check / unittest, frontend `npm run lint` / `build`) over broad end-to-end work unless a task truly spans both services.
 - Prefer local skills before remote docs lookups; use the LangChain docs MCP server only when current official references are still needed after the skills.
 
+## Superpowers Workflow
+Use the original superpowers workflow for this development. Superpowers is a methodology, not a loose checklist. The agent must check for relevant skills before every task, and applicable skills are mandatory.
+
+Follow this sequence for feature work:
+
+1. **Brainstorm before code.** Use `brainstorming` when the request is still a rough idea or design problem. Ask targeted questions, explore alternatives, present the design in readable sections, and get human approval before implementation planning.
+2. **Create an isolated workspace after design approval.** Use `civil-agent-worktree-bootstrap` together with `using-git-worktrees` before implementation work. For this repository, do not stop at bare `git worktree add`; bootstrap the new worktree with the project-local skill so `.env`, untracked `docs/` context, copied Kenmore artifacts, and QMD isolation are set up correctly before implementation begins.
+3. **Write the implementation plan from the approved design.** Use `writing-plans`. Save the plan under `docs/superpowers/plans/`. The plan must break work into 2-5 minute tasks with exact files, concrete code or command snippets, and verification steps. Get human approval before executing the implementation plan.
+4. **Execute the written plan with subagents.** Always use `subagent-driven-development` to execute implementation plans: dispatch a fresh subagent per task, then perform the required two-stage review for spec compliance and code quality. Do not silently fall back to inline execution.
+
+   If subagents cannot be created or used, stop before implementation and report the exact blocker, such as missing subagent tooling, unavailable plugin/runtime support, failed subagent creation, or permission/configuration limits. Explain why that prevents following `subagent-driven-development`, then ask whether to proceed with `executing-plans` as an explicit fallback. Only use `executing-plans` after the user approves that fallback.
+
+   Development subagent model policy for this work: use GPT-5.4-mini with medium reasoning for all subagents.
+
+   After each subagent returns its final report, integrate only the necessary findings into the main thread and close the completed subagent thread immediately.
+5. **Use TDD during implementation.** Use `test-driven-development` for behavior changes: write the failing test, see it fail, write the minimum implementation, see it pass, refactor, and commit. If production code was written before the test, delete or revert it and restart the red/green cycle.
+6. **Review between tasks.** Under `subagent-driven-development`, every task must pass spec-compliance review before code-quality review. Open review issues block progress until fixed. Use `requesting-code-review` only when an additional human-facing or external review is needed.
+7. **Finish the branch deliberately.** Use `finishing-a-development-branch` when planned tasks are complete. Run fresh verification, then present the options to merge, open a PR, keep the branch, or discard the worktree.
+
+Use `systematic-debugging` for bugs and failing tests. Use `verification-before-completion` before any claim that work is complete, fixed, passing, or ready for PR. Evidence comes before status claims.
+
+For behavior changes, use the Superpowers workflow. For narrow mechanical edits, apply the smallest safe change and still run relevant verification.
+
 ## Pointers
 - Read `frontend/AGENTS.md` for frontend-local commands, UI constraints, and component guidance; `frontend/docs/architecture.md` and `frontend/docs/environment.md` for frontend detail.
 - Read `backend/AGENTS.md` for backend-local commands, API constraints, and LangChain/LangGraph integration guidance; `backend/docs/architecture.md` and `backend/docs/environment.md` for backend detail.
