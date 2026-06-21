@@ -164,3 +164,61 @@ class BlockedApprovalStreamTests(IsolatedAsyncioTestCase):
         self.assertIsNone(conversation.updated_at)
         mock_get_valid_access_token.assert_not_called()
         mock_get_coordinator_agent.assert_not_called()
+
+
+class StreamFilteringTests(TestCase):
+    def test_tool_call_chunks_do_not_emit_tokens(self):
+        chunk = SimpleNamespace(
+            content="",
+            tool_calls=[
+                {
+                    "name": "call_web_search",
+                    "args": {"topic": "AI trends"},
+                }
+            ],
+        )
+
+        self.assertIsNone(chat._safe_token_content(chunk))
+
+    def test_json_payload_chunks_do_not_emit_tokens(self):
+        chunk = SimpleNamespace(
+            content='{"query":"AI trends","results":[{"url":"https://example.com"}]}',
+            tool_calls=[],
+        )
+
+        self.assertIsNone(chat._safe_token_content(chunk))
+
+    def test_plain_assistant_text_can_emit_tokens(self):
+        chunk = SimpleNamespace(content="Here is a concise answer.", tool_calls=[])
+
+        self.assertEqual(chat._safe_token_content(chunk), "Here is a concise answer.")
+
+    def test_action_event_for_known_tool_update(self):
+        event = chat._action_started_event("call_web_search", turn_id="turn-123")
+
+        self.assertEqual(event["type"], "action_started")
+        self.assertEqual(event["tool"], "call_web_search")
+        self.assertEqual(event["label"], "Research completed")
+        self.assertEqual(event["turn_id"], "turn-123")
+
+    def test_action_completed_event_for_known_tool_update(self):
+        event = chat._action_completed_event("call_web_search", turn_id="turn-123")
+
+        self.assertEqual(event["type"], "action_completed")
+        self.assertEqual(event["tool"], "call_web_search")
+        self.assertEqual(event["label"], "Research completed")
+        self.assertEqual(event["turn_id"], "turn-123")
+
+    def test_tool_call_names_extracts_dict_tool_calls(self):
+        chunk = SimpleNamespace(
+            content="",
+            tool_calls=[
+                {"name": "call_web_search", "args": {"topic": "AI trends"}},
+                {"name": "call_mailing_agent", "args": {"task": "Draft"}},
+            ],
+        )
+
+        self.assertEqual(
+            chat._tool_call_names(chunk),
+            ["call_web_search", "call_mailing_agent"],
+        )

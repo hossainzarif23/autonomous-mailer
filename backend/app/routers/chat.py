@@ -309,6 +309,63 @@ def _label_for_tool(name: str) -> str:
     return labels.get(name, name.replace("_", " ").title())
 
 
+def _looks_like_json_payload(content: str) -> bool:
+    stripped = content.strip()
+    if not stripped:
+        return False
+    if not (
+        (stripped.startswith("{") and stripped.endswith("}"))
+        or (stripped.startswith("[") and stripped.endswith("]"))
+    ):
+        return False
+    try:
+        json.loads(stripped)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
+def _safe_token_content(chunk: Any) -> str | None:
+    if getattr(chunk, "tool_calls", None):
+        return None
+    content = _message_text(getattr(chunk, "content", "")).strip()
+    if not content:
+        return None
+    if _looks_like_json_payload(content):
+        return None
+    return content
+
+
+def _tool_call_names(chunk: Any) -> list[str]:
+    names: list[str] = []
+    for tool_call in getattr(chunk, "tool_calls", None) or []:
+        if isinstance(tool_call, dict):
+            name = tool_call.get("name")
+        else:
+            name = getattr(tool_call, "name", None)
+        if name:
+            names.append(str(name))
+    return names
+
+
+def _action_started_event(tool_name: str, *, turn_id: str) -> dict[str, Any]:
+    return {
+        "type": "action_started",
+        "tool": tool_name,
+        "label": _label_for_tool(tool_name),
+        "turn_id": turn_id,
+    }
+
+
+def _action_completed_event(tool_name: str, *, turn_id: str) -> dict[str, Any]:
+    return {
+        "type": "action_completed",
+        "tool": tool_name,
+        "label": _label_for_tool(tool_name),
+        "turn_id": turn_id,
+    }
+
+
 def _apply_tool_message_to_turn(turn: dict[str, Any], message: ToolMessage):
     blocks: list[dict[str, Any]] = turn["content_blocks"]
     name = message.name or "tool"
@@ -550,11 +607,22 @@ async def stream_chat_message(
             ):
                 if part["type"] == "messages":
                     chunk, _metadata = part["data"]
-                    text = _message_text(chunk.content)
+                    tool_call_names = _tool_call_names(chunk)
+                    if tool_call_names:
+                        for tool_name in tool_call_names:
+                            yield _sse(_action_started_event(tool_name, turn_id=turn_id))
+                        continue
+                    text = _safe_token_content(chunk)
                     if text:
                         yield _sse({"type": "token", "content": text, "turn_id": turn_id})
                 elif part["type"] == "updates":
                     updates = part["data"]
+                    for node_update in updates.values():
+                        if not isinstance(node_update, dict):
+                            continue
+                        for message in node_update.get("messages", []):
+                            if isinstance(message, ToolMessage) and message.name:
+                                yield _sse(_action_completed_event(message.name, turn_id=turn_id))
                     interrupts = updates.get("__interrupt__", ())
                     for interrupt in interrupts:
                         interrupt_value = getattr(interrupt, "value", interrupt)
