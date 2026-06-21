@@ -214,11 +214,20 @@ export function useChat() {
             });
           } else if (payload.type === "approval_blocked") {
             const blockedMessage = payload.content || "Review the pending draft before sending another message in this conversation.";
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
+            const preservedBlocks = currentAssistantMessage?.content_blocks?.filter((block) => block.type !== "status") ?? [];
+            const contentBlocks =
+              preservedBlocks.length > 0
+                ? [buildStatusBlock("Waiting for approval", "pending", blockedMessage), ...preservedBlocks]
+                : [
+                    buildStatusBlock("Waiting for approval", "pending", blockedMessage),
+                    buildMarkdownBlock(assistantContent || blockedMessage)
+                  ];
             didBlockForApproval = true;
             updateMessage(assistantId, {
-              content: blockedMessage,
+              content: assistantContent || blockedMessage,
               status: "waiting_approval",
-              content_blocks: [buildStatusBlock("Waiting for approval", "pending", blockedMessage)],
+              content_blocks: contentBlocks,
               metadata: {
                 draft_id: payload.draft_id,
                 is_waiting_approval: true
