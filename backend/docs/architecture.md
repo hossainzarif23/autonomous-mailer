@@ -1,201 +1,372 @@
 # Backend Architecture
 
-This is the detailed architecture of the FastAPI backend in `backend/app/`.
-For commands, conventions, and rules see [`../AGENTS.md`](../AGENTS.md).
-For environment variables see [`environment.md`](environment.md).
-For product-level context see [`../../README.md`](../../README.md).
+## Document Status
 
-## Tech Stack
-- **Web:** FastAPI 0.135, Uvicorn, Starlette (`SessionMiddleware` for Authlib OAuth), `python-multipart`.
-- **Database:** SQLAlchemy 2.0 async (`asyncpg`), Alembic, `psycopg[binary,pool]` (LangGraph checkpointing).
-- **Auth:** Authlib (Google OAuth), `python-jose` (HS256 JWT), `cryptography` (Fernet token encryption), `httpx`.
-- **Gmail:** `google-api-python-client` + `google-auth`.
-- **LLM/Agents:** LangChain v1, LangGraph v1, `langgraph-checkpoint-postgres`, `langchain-openrouter` (model `qwen/qwen3.6-plus-preview:free`), Tavily (web search).
-- **Config:** `pydantic-settings`, `python-dotenv`.
-- **Python:** 3.11+.
+- **Scope:** FastAPI backend in `backend/app/`, including auth, Gmail integration, LangGraph orchestration, HITL approval, SSE, and persistence.
+- **Audience:** backend contributors, frontend integrators, reviewers, operators, and coding agents.
+- **Last reviewed:** 2026-06-21.
 
-## Entry Point (`app/main.py`)
-- `FastAPI(title="Email Agent API", lifespan=lifespan)`.
-- **Lifespan** (`@asynccontextmanager`): on startup runs `Base.metadata.create_all` inside `engine.begin()` (local bootstrap convenience; Alembic is the source of truth), then `await get_checkpointer()` + `await checkpointer.setup()` (creates LangGraph checkpoint tables), stores it on `app.state.checkpointer`. On shutdown: `close_checkpointer()` + `engine.dispose()`.
-- **Middleware order:** `CORSMiddleware` (allow_origins=`[settings.FRONTEND_URL]`, credentials, all methods/headers), then `SessionMiddleware` (Starlette, `secret_key=settings.SECRET_KEY`) — needed by Authlib's OAuth flow.
-- **Routers mounted** with prefixes: `auth` → `/api/auth`, `chat` → `/api/chat`, `emails` → `/api/emails`, `approve` → `/api/approve`, `notifications` → `/api/notifications`.
-- **Global exception handlers** produce a uniform `{"error": <ExceptionClassName>, "detail": ...}` shape:
-  - `HTTPException` → echoes status code; `detail` is dict/list or string.
-  - `RequestValidationError` → 422 with `detail: exc.errors()`.
-  - catch-all `Exception` → 500, logs, `detail: "Internal server error"`.
-- `GET /health` → `{"status": "ok"}`.
+Update this file when a backend boundary, persistence model, cross-cutting convention, agent workflow, deployment assumption, or frontend-facing contract changes.
 
-## Config & Database
-- `app/config.py`: `Settings(BaseSettings)` via `pydantic-settings`, loads `.env` (`extra="ignore"`). All settings have defaults so the app imports without a full env. Exposes `sync_database_url` property → returns `DATABASE_URL_PSYCOPG` (used by Alembic). `@lru_cache get_settings()` + module-level `settings` singleton.
-- `app/database.py`: `_build_async_engine_config` normalizes the asyncpg URL — pops `ssl`/`timeout` query params out of the URL and into typed `connect_args` (asyncpg needs native types, not strings). `engine = create_async_engine(...)` with `echo = (APP_ENV == "development")`. `AsyncSessionLocal = async_sessionmaker(engine, expire_on_commit=False)`. `get_db()` is the async generator dependency yielding an `AsyncSession`.
-- `app/checkpointer.py`: singleton `AsyncPostgresSaver` (from `langgraph.checkpoint.postgres.aio`) over a `psycopg_pool.AsyncConnectionPool` (min_size=1, max_size=5, autocommit=True, `prepare_threshold=None`, `dict_row` row factory) connected to `settings.DATABASE_URL_PSYCOPG`. `get_checkpointer()` lazily builds it via `AsyncExitStack`; `close_checkpointer()` tears it down. Stored on `app.state.checkpointer` at startup.
+## Executive Summary
 
-## Routers (`app/routers/`)
+The backend is the trusted service boundary for the Autonomous Email Agent. It authenticates users through Google OAuth, stores Gmail tokens encrypted at rest, reads and sends Gmail messages, orchestrates LangChain/LangGraph agents, persists conversation and approval state, and streams live progress to the Next.js client.
 
-### `auth.py` (prefix `/api/auth`)
-- `GET /login` — redirects to Google OAuth (Authlib `OAuth` client registered as `google`; scopes `openid email profile gmail.readonly gmail.send`; `access_type=offline`, `prompt=consent`, `include_granted_scopes=true`).
-- `GET /callback` — exchanges code, fetches userinfo via `fetch_google_userinfo`, upserts `User` (encrypts access/refresh tokens with Fernet), sets an httpOnly JWT cookie `access_token`, redirects to `{FRONTEND_URL}/dashboard`. On OAuth error redirects to `{FRONTEND_URL}/login?error=...`.
-- `POST /logout` — deletes the `access_token` cookie.
-- `GET /me` (`response_model=AuthenticatedUser`) — protected by `get_current_user`.
+The most important architectural invariant is that the final Gmail send is gated by human approval. The coordinator agent may research, read email, and draft content, but the `send_email` tool is wrapped in LangGraph human-in-the-loop middleware. A draft is persisted before approval, and the Gmail send only happens after the same LangGraph thread resumes with an approval or edit decision.
 
-### `chat.py` (prefix `/api/chat`) — the largest router
-- `POST /conversations` → `CreateConversationResponse` — creates a `Conversation` row.
-- `GET /conversations` → `list[ConversationSummary]` — user's conversations, ordered by `updated_at` desc.
-- `GET /history/{conversation_id}` → `list[ChatMessageResponse]` — loads LangGraph checkpoint messages via `app.state.checkpointer.aget_tuple({"configurable": {"thread_id": conversation_id}})` plus `EmailDraft` rows, then reconstructs structured assistant turns (`_serialize_history`) with content blocks: `markdown`, `status`, `tool_action`, `email_list`, `summary`, `research_report`, `draft_email`.
-- `POST /message` — **SSE streaming** (`StreamingResponse`, `text/event-stream`). Builds `AgentContext`, gets the coordinator via `get_coordinator_agent(request.app.state.checkpointer)`, runs `coordinator.astream(..., stream_mode=["messages","updates"], version="v2")` with `thread_id = conversation_id`. Emits SSE events: `turn_started`, `token`, `approval_pending` (when a HITL interrupt is detected via `is_hitl_interrupt` and persisted via `persist_hitl_interrupts`), `turn_completed`, `done`, `error`. Sets the conversation title from the first message.
-- Heavy helper layer parses sub-agent tool outputs (mail reader JSON payload, research payload) into UI blocks.
+## Goals and Non-Goals
 
-### `emails.py` (prefix `/api/emails`) — direct Gmail reads, all protected
-- `GET /recent?count=` (1–20, default 5) → `list[EmailSummary]`.
-- `GET /search?q=&sender=&topic=&count=` (1–20, default 10) → `list[EmailSummary]`.
-- `GET /{message_id}` → `EmailDetail`.
-- Each builds a `GmailService(access_token)` from `get_valid_access_token`.
+### Goals
 
-### `approve.py` (prefix `/api/approve`) — HITL resume
-- `GET /pending` — lists drafts with `status="pending_approval"` for the user.
-- `POST /{draft_id}` (`ApprovalRequest` → `ApprovalResponse`) — the core resume endpoint. Validates ownership + pending state. For `edit`/`approve` stores edited fields; for `reject` marks `status="rejected"`, creates a notification, broadcasts `email_rejected`. Then resumes the same LangGraph thread with `coordinator.astream(Command(resume={"decisions": [_build_decision(...)]}, update={current_draft, draft_feedback, needs_research_refresh}), ...)`. `needs_research_refresh` is set when a fresh draft is rejected and feedback contains research cues (`_feedback_requires_research`). Persists any new HITL interrupts surfaced during resume.
+- Keep privileged operations server-side: OAuth, token refresh, Gmail API calls, LLM orchestration, persistence, and final send.
+- Maintain cookie-based authentication using an httpOnly backend-issued JWT cookie.
+- Support resumable LangGraph conversations and approval workflows through Postgres checkpointing.
+- Provide structured conversation history that the frontend can render as reports, email cards, research notes, and draft artifacts.
+- Keep the agent workflow observable to the UI through SSE without exposing secrets or Gmail tokens.
 
-### `notifications.py` (prefix `/api/notifications`)
-- `GET /stream` — **SSE** long-lived stream. Subscribes to the in-memory `notification_service` queue, 30s timeout yields `{"type":"ping"}` keepalives, unsubscribes on cancel.
-- `GET ""` (root, i.e. `/api/notifications`) — paginated list (`page`, `limit` up to 100) → `list[NotificationResponse]`.
-- `PATCH /{notification_id}/read` — marks read.
+### Non-Goals
 
-## Auth Dependency (`app/middleware/auth_middleware.py`)
-`get_current_user(access_token: str | None = Cookie, db = Depends(get_db)) -> User` — decodes the JWT cookie (`jose.jwt.decode`, algorithm `JWT_ALGORITHM`), loads `User` by `sub`, raises 401 on missing/invalid token or missing user. This is the auth dependency used everywhere; despite the directory name `middleware/`, it is a FastAPI dependency, not ASGI middleware.
+- The backend does not serve the frontend UI.
+- The backend does not expose Gmail or OpenRouter credentials to the browser.
+- The backend does not use bearer-token auth from the frontend.
+- The backend does not rely on Next.js route handlers, server actions, or Firebase.
+- The current repository does not include a production deployment definition or Docker setup.
 
-## Agents (`app/agents/`) — LangChain v1 `create_agent` style
-- `context.py`: `@dataclass AgentContext(user_id, conversation_id, gmail_service, db_session, notification_service)` with `user_uuid`/`conversation_uuid` properties. This is the LangGraph `context_schema` passed to every agent.
-- `llm.py`: `@lru_cache get_llm() -> ChatOpenRouter` — model `qwen/qwen3.6-plus-preview:free`, temperature 0.1, max_tokens 4096, `app_url=settings.APP_URL`, `app_title="Email Agent"`. Sets `LANGSMITH_*` env vars only if `LANGSMITH_TRACING=true`.
-- `coordinator.py`: the orchestrator. Defines `EmailAgentState(AgentState)` with extra fields `current_draft`, `research_summary`, `draft_feedback`, `needs_research_refresh`. A `@dynamic_prompt` `coordinator_prompt` injects state into the system prompt. `make_coordinator_tools(checkpointer)` builds 4 tools: `call_mail_reader`, `call_web_search`, `call_mailing_agent` (each delegates to a sub-agent via `.ainvoke` with **user-scoped** thread IDs like `mail_reader_{user_id}`, returns `Command(update=...)`), plus `send_email` (imported from `draft_tools`). `get_coordinator_agent(checkpointer)` is a memoized factory (rebuilds if checkpointer identity changes) using `create_agent(model, tools, system_prompt, state_schema, context_schema, checkpointer, middleware=[coordinator_prompt, HumanInTheLoopMiddleware(interrupt_on={"send_email": {allowed_decisions: approve/edit/reject, description fn}})], name="coordinator")`.
-- `mail_reader_agent.py`: read-only agent, tools = `get_recent_emails, search_emails_by_sender, search_emails_by_topic, get_email_thread, get_full_email`. Memoized factory.
-- `mailing_agent.py`: draft-only agent (never sends), tools = `get_full_email, get_email_thread`. Strict JSON output schema enforced via prompt. Memoized factory `get_mailing_agent`.
-- `web_search_agent.py`: research agent, tool = `web_search` (Tavily). Memoized factory.
-- `tools/gmail_tools.py`: 5 `@tool` async functions reading from `runtime.context.gmail_service`, formatting output as plain-text blocks the LLM consumes.
-- `tools/search_tools.py`: `@lru_cache get_tavily_client()` + `@tool web_search(query)` (search_depth="advanced", max_results=5, include_answer="advanced").
-- `tools/draft_tools.py`: `@tool async send_email(...)` — the **HITL boundary**. After resume it calls `gmail_service.send_email`, updates the latest pending `EmailDraft` to `sent` (+ `gmail_sent_id`) or `send_failed`, creates a notification, broadcasts `email_sent`/`error`, and returns a `Command(update=...)` clearing `current_draft`/`draft_feedback`/`needs_research_refresh`.
+## System Context
 
-## Services (`app/services/`)
-- `auth_service.py`: `build_jwt_for_user` (HS256 JWT with sub/iat/exp), `build_oauth_scopes` (openid/email/profile + gmail.readonly + gmail.send), `compute_token_expiry`, `gmail_scopes_granted` (requires both gmail scopes), `fetch_google_userinfo` (httpx GET to openidconnect userinfo), `refresh_google_access_token` (httpx POST to `oauth2.googleapis.com/token`), and `get_valid_access_token(user_id, db)` — returns cached access token if >5 min from expiry, else refreshes via refresh_token, re-encrypts, and persists.
-- `gmail_service.py`: `GmailService(access_token)` wraps `googleapiclient.discovery.build("gmail","v1", credentials=Credentials(token=...), cache_discovery=False)`. Async methods offload synchronous Gmail API calls to threads via `asyncio.to_thread`: `list_messages`, `get_message`, `get_thread`, `send_email` (builds `EmailMessage`, base64url-encodes, sets `threadId` if reply). `_build_query(sender, topic, days_back, query)` constructs Gmail search syntax. Uses `app.utils.email_parser` for parsing.
-- `hitl_service.py`: `_send_email_requests(interrupt_value)` extracts `send_email` action requests from a LangGraph interrupt payload; `is_hitl_interrupt(interrupt_value)`; `serialize_draft_for_frontend`; `persist_hitl_interrupts(...)` — for each `send_email` request, creates an `EmailDraft` row with `status="pending_approval"`, commits, creates a notification, broadcasts an `approval_required` event, returns the events list.
-- `notification_service.py`: `NotificationService` — per-user in-memory event broadcaster using `defaultdict[str, list[asyncio.Queue]]`. `subscribe`/`unsubscribe`/`broadcast` + `create_notification` (persists a `Notification` row). A module-level singleton `notification_service = NotificationService()` is the SSE backbone.
-
-## Models (`app/models/`) — SQLAlchemy 2.0 `Mapped`/`mapped_column`, UUID PKs (`postgresql.UUID`)
-- `base.py`: `class Base(DeclarativeBase): pass`.
-- `user.py` (`users`): id, google_id (unique), email (unique), name, picture_url, access_token (encrypted, NOT NULL), refresh_token (encrypted), token_expiry, gmail_scope_granted, created_at, updated_at. Relationships: conversations, email_drafts, notifications (cascade all, delete-orphan).
-- `conversation.py` (`conversations`): id, user_id (FK users CASCADE), title, created_at, updated_at. Relationships back to user + email_drafts.
-- `email_draft.py` (`email_drafts`): id, user_id (FK CASCADE), conversation_id (FK conversations SET NULL), draft_type (`reply`|`fresh` — CHECK), to_address, subject, body, in_reply_to, thread_id, status (`pending_approval`|`approved`|`rejected`|`sent`|`send_failed` — CHECK, default `pending_approval`), edited_to/edited_subject/edited_body, gmail_sent_id, created_at, updated_at.
-- `notification.py` (`notifications`): id, user_id (FK CASCADE), type, title, body, `metadata_json` mapped to a JSONB column named `metadata` (default dict), is_read, created_at.
-- `__init__.py` re-exports `Base, Conversation, EmailDraft, Notification, User`.
-
-## Schemas (`app/schemas/`) — Pydantic v2 `BaseModel`
-- `auth.py`: `AuthenticatedUser`.
-- `chat.py`: `CreateConversationResponse`, `ConversationSummary`, `ChatMessageRequest` (`conversation_id`, `message`), `ChatMessageResponse` (with `content_blocks: list[dict]`, `status`, `turn_id`).
-- `email.py`: `EmailSummary`, `EmailDetail(EmailSummary)`.
-- `approval.py`: `ApprovalRequest` (`action: Literal["approve","edit","reject"]`, optional edited fields, feedback), `ApprovalResponse`.
-- `notification.py`: `NotificationResponse`.
-
-## Utils (`app/utils/`)
-- `email_parser.py`: pure functions — base64url decode, HTML strip, multipart `text/plain` then `text/html` fallback, header extraction (`parseaddr`), `parse_gmail_message`, `parse_gmail_thread` (sorts by `internalDate`).
-- `token_encryption.py`: Fernet symmetric encryption (`@lru_cache get_fernet()` from `TOKEN_ENCRYPTION_KEY`), `encrypt_token`/`decrypt_token` (raises `ValueError` on `InvalidToken`).
-
-## Database & Migrations
-- **Alembic** config in `backend/alembic.ini`: `script_location = alembic`, `prepend_sys_path = .`, `sqlalchemy.url` intentionally blank (injected at runtime).
-- `alembic/env.py`: imports `app.config.settings` and `app.models.Base`, sets `sqlalchemy.url` to `settings.sync_database_url` (= `DATABASE_URL_PSYCOPG`), sets `target_metadata = Base.metadata`, enables `compare_type=True`. Has `run_migrations_offline()` and `run_migrations_online()` (`pool.NullPool`).
-- **One migration:** `alembic/versions/001_initial_schema.py` (`revision = "001_initial_schema"`, `down_revision = None`): `CREATE EXTENSION IF NOT EXISTS "pgcrypto"`; creates `users`, `conversations` (index on `user_id`), `email_drafts` (indexes on `status`/`user_id`; CHECK constraints on `draft_type`/`status`; FKs users CASCADE, conversations SET NULL), `notifications` (partial index `idx_notifications_user_unread WHERE is_read = false`; `metadata` JSONB default `'{}'::jsonb`). `downgrade()` drops everything in reverse.
-- The migration matches the SQLAlchemy models exactly.
-- **Two persistence layers** in the same DB:
-  1. App tables — managed by **Alembic** (`alembic upgrade head`).
-  2. LangGraph checkpoint tables — managed automatically by `AsyncPostgresSaver.setup()` called in `main.py` lifespan.
-- Note: `main.py` lifespan *also* runs `Base.metadata.create_all` as a local bootstrap convenience, but Alembic is the source of truth.
-
-## Cross-Cutting Flows
-
-### Auth flow (cookie-based)
-1. `GET /api/auth/login` → Google OAuth redirect (scopes include `gmail.readonly` + `gmail.send`).
-2. `GET /api/auth/callback` → exchange code, `fetch_google_userinfo`, upsert `User` with Fernet-encrypted tokens, build HS256 JWT, set httpOnly `access_token` cookie, redirect to `{FRONTEND_URL}/dashboard`.
-3. `GET /api/auth/me` → `get_current_user` decodes cookie, loads `User`.
-4. `POST /api/auth/logout` → deletes the cookie.
-5. `get_valid_access_token(user_id, db)` auto-refreshes the Google access token via refresh_token when <5 min from expiry.
-
-### Chat → HITL → approval resume
-1. `POST /api/chat/message` (SSE) runs the coordinator with `thread_id = conversation_id`.
-2. The `send_email` tool is wrapped in `HumanInTheLoopMiddleware(interrupt_on={"send_email": ...})` → LangGraph interrupts before sending.
-3. `persist_hitl_interrupts` creates an `EmailDraft` (`status="pending_approval"`), creates a notification, broadcasts `approval_required`; an `approval_pending` SSE event is sent on the chat stream.
-4. `POST /api/approve/{draft_id}` resumes the same LangGraph thread with `Command(resume={"decisions": [...]})`. `needs_research_refresh` is set when a fresh draft is rejected with research cues.
-5. On resume, `send_email` performs the Gmail send, updates the `EmailDraft` to `sent`/`send_failed`, creates a notification, broadcasts `email_sent`/`error`, and clears draft state.
-
-### SSE
-Two SSE streams, both `text/event-stream` with `Cache-Control: no-cache`, `X-Accel-Buffering: no`, `data: {json}\n\n` framing:
-- `/api/chat/message` — request-scoped assistant streaming (`turn_started`, `token`, `approval_pending`, `turn_completed`, `done`, `error`).
-- `/api/notifications/stream` — long-lived approval/send notifications (`approval_required`, `email_sent`, `email_rejected`, `error`, `ping` keepalives).
-
-## Thread Scoping
-- Coordinator thread = `conversation_id` (conversation-scoped).
-- Sub-agent threads are **user-scoped**: `f"mail_reader_{user_id}"`, `f"mailing_agent_{user_id}"`, `f"web_search_{user_id}"`. Sub-agents never share the coordinator's conversation-scoped thread.
-
-## Repository Layout
+```mermaid
+flowchart LR
+  User["User in browser"] --> Frontend["Next.js frontend"]
+  Frontend -->|"cookie-auth REST"| Backend["FastAPI backend"]
+  Frontend -->|"SSE chat stream"| Backend
+  Frontend -->|"SSE notifications"| Backend
+  Backend -->|"OAuth + userinfo"| GoogleAuth["Google OAuth"]
+  Backend -->|"read/search/send"| Gmail["Gmail API"]
+  Backend -->|"agent model calls"| OpenRouter["OpenRouter LLM"]
+  Backend -->|"web research"| Tavily["Tavily"]
+  Backend -->|"app tables"| AppDb["Postgres app schema"]
+  Backend -->|"checkpoints"| GraphDb["Postgres LangGraph checkpoint schema"]
 ```
+
+The backend is the only component that talks directly to Google OAuth, Gmail, OpenRouter, Tavily, and Postgres. The frontend calls `/api/*` with cookies and renders structured results.
+
+## Architectural Drivers
+
+| Driver | Architectural response |
+| --- | --- |
+| Gmail tokens are sensitive | Tokens are encrypted with Fernet before storage and are never sent to the frontend. |
+| Sending email is non-idempotent | `send_email` is the HITL boundary and executes only after LangGraph resume. |
+| Chat workflows are multi-step and resumable | Coordinator state and messages are checkpointed with LangGraph Postgres persistence. |
+| Users need live progress | `/api/chat/message` streams request-scoped SSE events; `/api/notifications/stream` streams long-lived approval/send notifications. |
+| Frontend needs rich structured rendering | Backend converts LangGraph messages and draft rows into typed content blocks. |
+| Local development should be low-friction | Startup calls `Base.metadata.create_all`; Alembic remains the schema source of truth. |
+
+## Solution Strategy
+
+The backend uses a layered FastAPI structure:
+
+- **Routers** define authenticated HTTP/SSE boundaries.
+- **Services** own external integrations and cross-cutting domain behavior.
+- **Agents** own LLM orchestration and tool delegation.
+- **Models and migrations** own the app database schema.
+- **LangGraph checkpointer** owns resumable agent state in the same Postgres database.
+
+The application uses one database for two persistence systems:
+
+1. **App tables** managed by Alembic and SQLAlchemy: `users`, `conversations`, `email_drafts`, `notifications`.
+2. **LangGraph checkpoint tables** managed by `AsyncPostgresSaver.setup()` during FastAPI lifespan startup.
+
+## Major Components
+
+| Component | Responsibility | Key files |
+| --- | --- | --- |
+| FastAPI app | Lifespan startup, middleware, router registration, uniform error handlers, health check. | `app/main.py` |
+| Auth boundary | Google OAuth, JWT cookie creation, current-user dependency, token refresh. | `routers/auth.py`, `middleware/auth_middleware.py`, `services/auth_service.py` |
+| Gmail integration | Gmail API client, message/thread reads, send operation, query construction. | `services/gmail_service.py`, `utils/email_parser.py` |
+| Chat API | Conversation CRUD, chat SSE, history reconstruction, coordinator invocation. | `routers/chat.py` |
+| Agent system | Coordinator, sub-agents, prompts, tools, HITL middleware, state schema. | `agents/` |
+| Approval API | Pending draft list, approve/edit/reject, LangGraph resume. | `routers/approve.py` |
+| HITL persistence | Detect send interrupts, persist drafts, emit approval events. | `services/hitl_service.py` |
+| Notifications | Persisted notifications plus per-process SSE queues. | `routers/notifications.py`, `services/notification_service.py` |
+| App persistence | Async SQLAlchemy engine/session and Alembic schema. | `database.py`, `models/`, `alembic/` |
+| LangGraph persistence | Async Postgres checkpointer and connection pool. | `checkpointer.py` |
+
+## Runtime Views
+
+### Authentication
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Backend as FastAPI
+  participant Google as Google OAuth
+  participant DB as Postgres
+
+  Browser->>Backend: GET /api/auth/login
+  Backend->>Google: authorize_redirect(scopes)
+  Google-->>Backend: GET /api/auth/callback?code=...
+  Backend->>Google: exchange code + fetch userinfo
+  Backend->>DB: upsert User with encrypted tokens
+  Backend-->>Browser: 302 /dashboard + httpOnly access_token cookie
+  Browser->>Backend: GET /api/auth/me with cookie
+  Backend->>DB: load User from JWT sub
+  Backend-->>Browser: AuthenticatedUser
+```
+
+The cookie is named `access_token`. The frontend may check cookie presence for routing, but the backend is the authority that validates the JWT and user.
+
+### Chat and Agent Streaming
+
+```mermaid
+sequenceDiagram
+  participant Frontend
+  participant Chat as /api/chat/message
+  participant Auth as Auth service
+  participant Coord as Coordinator agent
+  participant Agents as Sub-agents/tools
+  participant DB as Postgres
+
+  Frontend->>Chat: POST conversation_id + message
+  Chat->>DB: verify conversation ownership, update title/timestamp
+  Chat-->>Frontend: SSE turn_started
+  Chat->>Auth: get_valid_access_token(user)
+  Chat->>Coord: astream(HumanMessage, thread_id=conversation_id)
+  Coord->>Agents: delegate mail/research/drafting tasks
+  Agents-->>Coord: ToolMessage/Command updates
+  Coord-->>Chat: tokens + updates
+  Chat-->>Frontend: SSE token events
+  Chat-->>Frontend: SSE turn_completed + done
+```
+
+The coordinator thread is conversation-scoped. Sub-agent threads are user-scoped so the mail reader, web search, and mailing agents can retain user-level context without sharing the coordinator conversation checkpoint.
+
+### HITL Approval and Resume
+
+```mermaid
+sequenceDiagram
+  participant Coord as Coordinator
+  participant HITL as HumanInTheLoopMiddleware
+  participant Chat as Chat router
+  participant DB as Postgres
+  participant Notify as NotificationService
+  participant Frontend
+  participant Approve as Approval router
+  participant Gmail
+
+  Coord->>HITL: tool call send_email(args)
+  HITL-->>Chat: interrupt(action_requests)
+  Chat->>DB: create EmailDraft pending_approval
+  Chat->>Notify: persist + broadcast approval_required
+  Chat-->>Frontend: SSE approval_pending
+  Frontend->>Approve: POST /api/approve/{draft_id}
+  Approve->>Coord: Command(resume={decisions}, update={current_draft,...})
+  Coord->>Gmail: send_email after approval/edit
+  Coord->>DB: mark draft sent/send_failed
+  Coord->>Notify: persist + broadcast email_sent/error
+```
+
+Rejecting a draft marks it `rejected`, broadcasts `email_rejected`, and resumes the same LangGraph thread with feedback. For fresh-email drafts, feedback containing research cues sets `needs_research_refresh`.
+
+### History Reconstruction
+
+Conversation history is not stored as a plain chat table. `GET /api/chat/history/{conversation_id}` reads:
+
+- LangGraph checkpoint messages for the conversation `thread_id`.
+- `EmailDraft` rows for the conversation.
+
+`routers/chat.py` then serializes those into frontend content blocks:
+
+- `markdown`
+- `status`
+- `tool_action`
+- `email_list`
+- `summary`
+- `research_report`
+- `draft_email`
+- `system_notice`
+
+This makes the backend the source of truth for the semantic shape of assistant turns.
+
+## Data Architecture
+
+### App Tables
+
+| Table | Purpose |
+| --- | --- |
+| `users` | Google identity, encrypted access/refresh tokens, token expiry, Gmail scope flag. |
+| `conversations` | User-owned conversation records; IDs also serve as coordinator LangGraph thread IDs. |
+| `email_drafts` | Approval-gated draft state, edited fields, Gmail sent ID, reply metadata. |
+| `notifications` | Persisted approval/send/error notification records with JSON metadata. |
+
+### Relationships and Ownership
+
+- `users` owns conversations, drafts, and notifications with cascade delete.
+- `email_drafts.conversation_id` is nullable and uses `SET NULL` if a conversation is deleted.
+- Draft status is constrained to `pending_approval`, `approved`, `rejected`, `sent`, or `send_failed`.
+- Draft type is constrained to `reply` or `fresh`.
+
+### Sensitive Data
+
+- Google access and refresh tokens are encrypted in `users`.
+- Gmail message content can flow through agent prompts, LangGraph checkpoints, and frontend-rendered blocks.
+- Notification metadata can contain draft payloads; treat it as sensitive application data.
+
+## API and Integration Boundaries
+
+### Frontend-Facing API Groups
+
+| Prefix | Responsibility |
+| --- | --- |
+| `/api/auth` | OAuth login/callback/logout/current user. |
+| `/api/chat` | Conversation list/create/history and request-scoped assistant SSE stream. |
+| `/api/emails` | Direct Gmail read/search/detail endpoints. |
+| `/api/approve` | Pending approvals and HITL resume. |
+| `/api/notifications` | Long-lived notification SSE stream plus notification list/read APIs. |
+
+### External Integrations
+
+- **Google OAuth:** identity and Gmail consent.
+- **Gmail API:** read/search/thread/send via `google-api-python-client`.
+- **OpenRouter:** LLM provider through `langchain-openrouter`.
+- **Tavily:** web research tool.
+- **Postgres:** app schema and LangGraph checkpoint schema.
+
+## Deployment View
+
+The code assumes a single FastAPI process with:
+
+- Python 3.11+.
+- `uvicorn app.main:app`.
+- Postgres reachable through two DSNs:
+  - `DATABASE_URL` for async SQLAlchemy/asyncpg.
+  - `DATABASE_URL_PSYCOPG` for Alembic and LangGraph/psycopg.
+- Environment variables defined in [`environment.md`](environment.md).
+- A separate Next.js frontend origin configured as `FRONTEND_URL`.
+
+The live notification broadcaster is in-memory and per-process. If the backend is horizontally scaled, `/api/notifications/stream` needs a shared pub/sub layer or sticky sessions to preserve live notification delivery across workers.
+
+## Security and Trust Model
+
+- Browser authentication uses an httpOnly JWT cookie issued by the backend.
+- OAuth uses Google scopes: `openid`, `email`, `profile`, `gmail.readonly`, and `gmail.send`.
+- Gmail tokens are encrypted with Fernet before storage.
+- The frontend never receives Gmail tokens and never sends bearer tokens.
+- Every protected router uses `get_current_user`.
+- Conversation, draft, and notification access is scoped by the authenticated user.
+- CORS allows only `settings.FRONTEND_URL` with credentials.
+- The final Gmail send is the critical non-idempotent side effect and is approval-gated.
+
+## Cross-Cutting Concepts
+
+### Error Handling
+
+`app/main.py` returns a consistent error envelope:
+
+```json
+{ "error": "<ExceptionClassName>", "detail": "..." }
+```
+
+Validation errors return `422` with `detail: exc.errors()`. Unknown exceptions are logged and returned as `500` with `detail: "Internal server error"`.
+
+### Configuration
+
+`Settings` in `app/config.py` uses `pydantic-settings`, `.env`, defaults for importability, and a cached module-level `settings` instance.
+
+### Database Sessions
+
+Routers receive an `AsyncSession` through `Depends(get_db)`. The code generally commits at service/router boundaries after mutating app tables.
+
+### Agent Context
+
+`AgentContext` carries user ID, conversation ID, Gmail service, DB session, and notification service into all LangChain tools and agents.
+
+### SSE Framing
+
+SSE responses use `text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`, and `data: {json}\n\n`.
+
+## Architectural Decisions
+
+| Decision | Status | Rationale / impact |
+| --- | --- | --- |
+| Backend owns all privileged operations | Accepted | Keeps tokens, Gmail sends, persistence, and LLM orchestration out of the browser. |
+| Auth is cookie-based | Accepted | Enables browser credential handling with httpOnly cookies and avoids client-side bearer tokens. |
+| LangGraph coordinator thread equals conversation ID | Accepted | Makes conversation history, checkpointing, and approval resume share one stable identifier. |
+| Sub-agent threads are user-scoped | Accepted | Allows specialized agents to retain user-level context independent of individual conversations. |
+| `send_email` is the HITL boundary | Accepted | Prevents non-idempotent email sends before approval. |
+| Same Postgres DB backs app data and LangGraph checkpoints | Accepted | Simplifies deployment and keeps conversation state near app data, with two persistence owners. |
+| Notifications are persisted and broadcast live | Accepted with caveat | Gives both history and real-time UX, but in-memory live queues are single-process only. |
+
+Create ADRs under `docs/adr/` if these decisions change or if a new cross-cutting decision is introduced.
+
+## Quality Attribute Scenarios
+
+| Attribute | Scenario | Mechanism |
+| --- | --- | --- |
+| Security | A browser request attempts to access another user's conversation or draft. | JWT user is loaded server-side and ownership checks reject mismatched resources. |
+| Safety | An agent decides to send an email. | LangGraph HITL middleware interrupts before `send_email`; draft is persisted for review. |
+| Recoverability | The user approves or rejects after the original chat request ended. | LangGraph checkpoint plus `Command(resume=...)` resumes the same conversation thread. |
+| Usability | The user needs progress during long agent runs. | Chat SSE streams tokens and approval-pending events. |
+| Maintainability | Frontend rendering should not parse raw tool text. | Backend emits structured `content_blocks` from checkpoint messages and draft rows. |
+| Operability | Browser tab waits on approval/send events. | Notification SSE uses keepalive pings and persisted notifications. |
+
+## Risks and Technical Debt
+
+| Risk / debt | Impact | Mitigation |
+| --- | --- | --- |
+| Notification broadcasts are in-memory | Live notifications can be lost across multiple backend workers or process restarts. | Use Redis/Postgres pub-sub or another shared event bus before horizontal scaling. |
+| `Base.metadata.create_all` runs on startup | Convenient locally but can mask migration discipline. | Keep Alembic as production source of truth; remove or gate bootstrap for production if needed. |
+| Agent tests are stale | `test_agent_factories.py` and `test_agent_tools.py` reference removed symbols. | Update/delete stale tests before relying on full backend test status. |
+| No router/integration tests | Auth, SSE, HITL resume, and DB behavior are mostly untested end-to-end. | Add focused FastAPI and LangGraph workflow tests. |
+| Gmail side effects need idempotency care | Duplicate resume or retry paths could send twice if not guarded. | Keep side effects after HITL resume; add explicit idempotency checks around sent drafts. |
+| Notification metadata may contain draft content | Sensitive content can live beyond the active workflow. | Define retention/privacy policy for notifications and draft metadata. |
+
+## Repository Map
+
+```text
 backend/
-  alembic/
-    env.py
-    script.py.mako
-    versions/001_initial_schema.py
   app/
-    __init__.py
-    main.py
-    config.py
-    database.py
-    checkpointer.py
-    agents/
-      __init__.py
-      context.py
-      llm.py
-      coordinator.py
-      mail_reader_agent.py
-      mailing_agent.py
-      web_search_agent.py
-      tools/
-        __init__.py
-        gmail_tools.py
-        search_tools.py
-        draft_tools.py
-    middleware/
-      __init__.py
-      auth_middleware.py
-    models/
-      __init__.py
-      base.py
-      user.py
-      conversation.py
-      email_draft.py
-      notification.py
-    routers/
-      __init__.py
-      auth.py
-      chat.py
-      emails.py
-      approve.py
-      notifications.py
-    schemas/
-      __init__.py
-      auth.py
-      chat.py
-      email.py
-      approval.py
-      notification.py
-    services/
-      __init__.py
-      auth_service.py
-      gmail_service.py
-      hitl_service.py
-      notification_service.py
-    utils/
-      __init__.py
-      email_parser.py
-      token_encryption.py
-  tests/
-  requirements.txt
-  alembic.ini
-  .env.example
+    main.py                 # FastAPI app, lifespan, middleware, routers, error handlers
+    config.py               # environment-backed settings
+    database.py             # async SQLAlchemy engine/session
+    checkpointer.py         # LangGraph Postgres checkpointer
+    agents/                 # coordinator, sub-agents, tools, LLM config, runtime context
+    middleware/             # auth dependency
+    models/                 # SQLAlchemy app tables
+    routers/                # HTTP and SSE API boundaries
+    schemas/                # Pydantic response/request models
+    services/               # auth, Gmail, HITL, notifications
+    utils/                  # email parsing, token encryption
+  alembic/                  # app schema migrations
+  tests/                    # stdlib unittest tests
 ```
+
+## Verification
+
+Use the smallest relevant check after backend changes:
+
+- Compile: `python -m compileall app`
+- Unit tests: `python -m unittest discover -s tests`
+- Migrations: `alembic upgrade head`
+
+Known caveat: some existing agent tests are stale and may fail until updated.
+
+## Glossary
+
+- **Coordinator:** Main LangGraph agent that decides whether to read mail, research, draft, or send.
+- **Sub-agent:** Specialized user-scoped agent for mail reading, web search, or drafting.
+- **HITL:** Human-in-the-loop approval boundary before the final Gmail send.
+- **Checkpoint:** LangGraph persisted state for resumable conversation execution.
+- **Conversation ID:** App-level conversation UUID and coordinator LangGraph `thread_id`.
+- **Content block:** Backend-produced structured assistant-rendering object consumed by the frontend.
+
+## Update Policy
+
+Update this document when:
+
+- a router contract or SSE event contract changes
+- auth, token storage, or cookie behavior changes
+- agent topology, thread scoping, or HITL behavior changes
+- app tables, LangGraph checkpointing, or persistence ownership changes
+- deployment assumptions change
+- a new major external integration is added
+- a risk is resolved or a new architecture-level risk is introduced

@@ -1,149 +1,395 @@
 # Frontend Architecture
 
-This is the detailed architecture of the Next.js frontend in `frontend/`.
-For commands, conventions, and rules see [`../AGENTS.md`](../AGENTS.md).
-For environment variables see [`environment.md`](environment.md).
-For product-level context see [`../../README.md`](../../README.md).
+## Document Status
 
-## Tech Stack
-- **Framework:** Next.js 14 (`^14.2.0`) App Router, React 18 (`^18.3.1`), TypeScript 5.6 (strict).
-- **Styling:** Tailwind CSS 3, `tailwindcss-animate`, custom HSL CSS-variable theme, lucide-react icons.
-- **State:** Zustand (`^4.5.5`) — 3 stores + a toast store.
-- **Data:** Axios (`^1.7.7`) for REST, raw `fetch` + `ReadableStream` for SSE chat streaming, browser `EventSource` for notifications.
-- **UI primitives:** Radix UI (`@radix-ui/react-dialog`, `react-toast`, `react-slot`) via shadcn/ui (`components.json`).
-- **Utilities:** `clsx` + `tailwind-merge` (`cn()`), `class-variance-authority`.
-- **Package manager:** npm (`package-lock.json`, lockfileVersion 3). No pnpm/yarn.
+- **Scope:** Next.js frontend in `frontend/`, including routing, authentication UX, dashboard shell, chat rendering, approval modal, SSE handling, state stores, and backend contracts.
+- **Audience:** frontend contributors, backend integrators, reviewers, designers, and coding agents.
+- **Last reviewed:** 2026-06-21.
 
-## App Router Structure (`app/`)
-- `layout.tsx` (server component): root `<html>/<body>`, sets metadata (`title: "Email Agent"`), imports `globals.css`, wraps children in `<Providers>`.
-- `page.tsx` (server component): reads `access_token` cookie via `cookies()` from `next/headers`, `redirect()` to `/dashboard` if present else `/login`.
-- `providers.tsx` (`"use client"`): renders `children` + global `<Toaster/>`.
-- `login/page.tsx` (server component): marketing/login card. The "Continue with Google" button is an `<a href>` pointing to `${NEXT_PUBLIC_API_URL}/auth/login` — i.e. **the backend initiates OAuth**. Reads `searchParams.error` for OAuth failure messages.
-- `auth/callback/page.tsx` (server component): static "Signing you in" spinner. The backend completes the OAuth callback and redirects to the dashboard; this page is transitional only and does nothing functional.
-- `dashboard/layout.tsx` (server component): wraps dashboard in a grid background `<div>` and **mounts `<ApprovalModal/>` globally** so any SSE-triggered approval can open it.
-- `dashboard/page.tsx` (`"use client"`): the main app. Calls `useAuth()` and `useSSE(status === "authenticated")`. Shows a loading spinner while `idle`/`loading`, then renders `<ConversationSidebar/>` + `<ChatWindow/>` + `<InputBar/>` in a `grid-cols-[300px_minmax(0,1fr)]` layout.
-- `error.tsx` + `global-error.tsx` (`"use client"`): Next.js error boundaries with "Try Again"/"Back to Dashboard" buttons.
+Update this file when frontend boundaries, backend contracts, state ownership, streaming behavior, auth assumptions, or dashboard composition changes.
 
-## Components (`components/`)
-- `approval/ApprovalModal.tsx` (`"use client"`): Radix Dialog bound to `useApprovalStore`. Lets the user edit `to`/`subject`/`body`, write rejection `feedback`, and approve or request rewrite. POSTs to `api.post("/approve/{draft_id}")` with `action: "approve" | "edit" | "reject"`, sending `edited_to/subject/body` and `feedback`. Uses `markPending`/`clearPending` to prevent re-opening the same draft mid-submission; on error reopens the modal.
-- `chat/ChatWindow.tsx` (`"use client"`): reads `messages` from `chatStore`; shows starter prompt cards when empty, else maps messages to `<ConversationTurn/>`.
-- `chat/ConversationSidebar.tsx` (`"use client"`): on mount hydrates the conversation list via `useChat().refreshConversations()` and auto-loads the first conversation. Renders user card (name/email + `gmail_scope_granted` badge), "New Chat" button, conversation list (active highlight + date), logout button, streaming indicator. Uses `getErrorMessage` with a Retry affordance.
-- `chat/ConversationTurn.tsx` (`"use client"`): the rich renderer. Splits assistant `content_blocks` into action pills, status pills, and content blocks; `BlockRenderer` switch over block types: `markdown`, `status`, `tool_action`, `email_list` (maps `EmailCard`s), `summary`, `research_report`, `draft_email` (inline `DraftEmailCard`), `system_notice`. User turns render right-aligned as a primary bubble.
-- `chat/EmailCard.tsx` (`"use client"`): single `EmailSummary` card (subject, from, date, snippet).
-- `chat/InputBar.tsx` (`"use client"`): controlled input; submits via `useChat().sendMessage`; disabled while `isStreaming`; restores message text on send failure.
-- `chat/MarkdownResponse.tsx` (`"use client"`): **custom hand-rolled markdown renderer** (headings H1–H3, blockquotes, ordered/unordered lists, inline `**bold**`, `*italic*`, `` `code` ``). No `react-markdown` dependency.
-- `chat/MessageBubble.tsx`: a simpler legacy bubble (no `"use client"`, reads `message.metadata?.is_waiting_approval`). Not referenced by the active render path (`ConversationTurn` is used instead) — likely dead/legacy.
-- `notifications/NotificationToast.tsx` (`"use client"`): trivial wrapper rendering `<Toaster/>`. The global `<Toaster/>` is already mounted in `providers.tsx`, so this appears redundant/unused.
-- `ui/*`: standard shadcn/ui primitives — `button` (cva variants: default/outline/ghost; sizes: default/sm/lg; supports `asChild`), `dialog`, `input`, `textarea`, `toast`, `toaster`. All forward refs, all use `cn()`.
+## Executive Summary
 
-## Hooks (`hooks/`)
-- `useAuth.ts` (`"use client"`): on mount when `status === "idle"`, calls `api.get("/auth/me")` to hydrate the `authStore` with `UserProfile`; `logout()` POSTs `/auth/logout` then `window.location.href = "/login"`. Exposes `{ user, status, refreshUser, logout }`.
-- `useChat.ts` (`"use client"`): the core chat orchestration. `refreshConversations()` (GET `/chat/conversations`), `hydrateConversation` (GET `/chat/history/{id}`), `createConversation` (POST `/chat/conversations`), `loadConversation`, `reloadConversation`, and **`sendMessage`** which uses **`fetch`** (not axios) to POST `/chat/message` and then **manually parses the SSE stream** via `ReadableStream` reader + `TextDecoder`, splitting on `\n\n` boundaries and parsing `data:` lines as `SSEEvent`. Handles event types `turn_started`, `token` (appends content), `approval_pending` (sets `waiting_approval` + reloads history), `turn_completed`/`done` (reloads history), `error`. Uses optimistic assistant placeholder message with `crypto.randomUUID()` ids; removes it if empty at the end. Surfaces errors via `useToast`.
-- `useSSE.ts` (`"use client"`): opens a long-lived `EventSource` to `${NEXT_PUBLIC_API_URL}/notifications/stream` with `withCredentials: true`. Handles `approval_required` (opens `ApprovalModal` via store), `email_sent`, `email_rejected`, `error` (toasts + `clearPending`). Refreshes active conversation history when events match `activeConversationId`. Exponential backoff reconnect (capped at 10s). Enabled only when authenticated.
-- `use-toast.ts` (`"use client"`): defines a `useToastStore` (Zustand) with `toasts`/`push`/`dismiss`, plus `useToast()` returning `{ toast }`. Custom toast implementation (not shadcn's `useToast` hook).
+The frontend is a Next.js 14 App Router application that renders the user-facing Gmail assistant dashboard. It is intentionally a client UI, not a privileged application server. Authentication, Gmail access, LLM orchestration, persistence, and email sending all live in the FastAPI backend.
 
-## Lib (`lib/`)
-- `api.ts`: creates the `axios` instance with `baseURL = NEXT_PUBLIC_API_URL ?? "http://localhost:8000/api"`, `withCredentials: true`, JSON content-type. Response interceptor: on **401** (and not already on `/login`), redirects `window.location.href = "/login?next=..."`. Normalizes error messages via `getErrorMessage` (handles FastAPI-style `detail` arrays with `msg`/`loc`, string detail, `{error}` field, generic `Error.message`). Exports `api` and `getErrorMessage`. Uses a `_authRedirectTriggered` guard to prevent redirect loops.
-- `utils.ts`: the standard shadcn `cn()` helper (`twMerge(clsx(...))`).
+The frontend's main architectural responsibilities are:
 
-## Stores (`stores/`) — Zustand, all `"use client"`
-- `authStore.ts`: `{ user, status: "idle"|"loading"|"authenticated"|"unauthenticated", setUser, setStatus, reset }`.
-- `chatStore.ts`: `{ conversations, activeConversationId, messages, isStreaming, setConversations, setActiveConversationId, setMessages, appendMessage, updateMessage, removeMessage, setStreaming, reset }`.
-- `approvalStore.ts`: `{ isOpen, draft, originalDraft, feedback, pendingDraftIds, open, close, markPending, clearPending, isPending, updateDraft, setFeedback }`. `open()` refuses to open a draft already in `pendingDraftIds` (prevents re-prompting while in flight).
+- route users based on cookie presence and backend session validation
+- call backend REST endpoints with credentials
+- consume two SSE paths: chat streaming and long-lived notifications
+- keep UI state in small Zustand stores
+- render backend-provided structured conversation blocks
+- present approval/edit/reject controls for human-in-the-loop email sending
 
-## Types (`types/index.ts`)
-Centralized type definitions:
-- `MessageRole` ("user"|"assistant"), `TurnStatus`.
-- `Conversation`, `UserProfile` (incl. `gmail_scope_granted: boolean`), `EmailSummary`, `EmailDraft`, `ApprovalAction`, `ApprovalDraftPayload`.
-- **`ChatContentBlock`** discriminated union: `markdown | status | tool_action | email_list | summary | research_report | draft_email | system_notice`.
-- `ChatMessage` (with optional `content_blocks`, `status`, `turn_id`, `metadata.draft_id`/`is_waiting_approval`).
-- **`SSEEvent`** with `type` union: `token | turn_started | action_started | action_completed | artifact_available | approval_pending | approval_required | email_sent | email_rejected | turn_completed | error | done | ping`.
+## Goals and Non-Goals
 
-## Routing & Auth Flow
-Auth is **cookie-based, not bearer tokens**. The frontend never reads the token value (except cookie *presence* checks) and never puts it in an Authorization header.
-1. **Unauthenticated user hits `/`** → `app/page.tsx` (server component) calls `cookies().get("access_token")`. No cookie → `redirect("/login")`.
-2. **`/login`** (`app/login/page.tsx`, server): renders "Continue with Google" as an `<a>` to `${NEXT_PUBLIC_API_URL}/auth/login`. The **backend initiates Google OAuth**. Shows `?error=...` banners.
-3. **Middleware** (`frontend/middleware.ts`, edge, matcher `["/dashboard/:path*", "/login"]`): reads the `access_token` cookie. If `pathname.startsWith("/dashboard")` and **no token** → `/login`; if on `/login` with a token → `/dashboard`. This is edge-runtime route protection on cookie *presence* (validation is client-side via `/auth/me`).
-4. **Backend OAuth callback** → FastAPI exchanges the code, sets the `access_token` httpOnly cookie, redirects to `/dashboard`. (`app/auth/callback/page.tsx` is just a spinner shown during the redirect window.)
-5. **`/dashboard`** (`app/dashboard/page.tsx`, `"use client"`): calls `useAuth()` which, on mount with `status === "idle"`, GETs `/auth/me` (cookies included). Success → `status: "authenticated"` + `user`. Failure → `reset()` → `status: "unauthenticated"`. Calls `useSSE(status === "authenticated")` — opens `EventSource` to `/notifications/stream` only once authenticated.
-6. **Axios 401 interceptor** (`lib/api.ts`): any API response with status 401 (and not already on `/login`) triggers `window.location.href = "/login?next=<encoded path>"`. Guarded by `_authRedirectTriggered` to avoid loops.
-7. **Logout** (`useAuth.logout`): POSTs `/auth/logout` (backend clears the `access_token` cookie), then `window.location.href = "/login"`, and `authStore.reset()`.
+### Goals
 
-### Cookie handling summary
-- Cookie name: **`access_token`**.
-- Set/cleared by: **FastAPI backend** (the frontend never sets it).
-- Sent automatically via `withCredentials: true` (axios), `credentials: "include"` (fetch), and `withCredentials: true` (EventSource).
-- Read by frontend **only for presence checks** in `middleware.ts` and `app/page.tsx` — never for the token value. **No bearer tokens, no Firebase ID tokens.**
+- Keep the UI responsive during long-running agent work.
+- Render rich assistant turns with summaries, research reports, email cards, status chips, and draft artifacts.
+- Keep auth cookie handling browser-native and backend-owned.
+- Make the approval modal globally reachable from notification events.
+- Keep shared UI state explicit and small.
+- Preserve the backend as the source of truth for conversations, drafts, notifications, and user session validation.
 
-## Approval Sub-Flow (cross-cutting)
-- During chat streaming (`useChat`), an `approval_pending` SSE event marks the assistant message `waiting_approval` and reloads history.
-- Separately, `useSSE` listens for `approval_required` events on the notifications stream and calls `approvalStore.open(draft)`, which opens the global `<ApprovalModal/>` (mounted in `dashboard/layout.tsx`). The modal POSTs to `/approve/{draft_id}` with `approve | edit | reject`; on resolution, SSE `email_sent` / `email_rejected` events call `clearPending` and toast the result.
+### Non-Goals
 
-## Server vs Client Split
-- **Server components** for routes that read cookies / do redirects: `app/layout.tsx`, `app/page.tsx`, `app/login/page.tsx`, `app/auth/callback/page.tsx`, `app/dashboard/layout.tsx`.
-- **Client islands** (`"use client"`) for everything interactive: `app/providers.tsx`, `app/dashboard/page.tsx`, all `components/*` except `MessageBubble.tsx`, all `hooks/*`, all `stores/*`.
+- The frontend does not read Gmail directly.
+- The frontend does not store or inspect the JWT value beyond cookie-presence checks.
+- The frontend does not send bearer tokens.
+- The frontend does not own OAuth callback processing.
+- The frontend does not persist conversation state locally beyond in-memory UI state.
+- The frontend does not run backend logic through Next.js route handlers or server actions.
 
-## Config Files
-- `next.config.js` — minimal: `{ reactStrictMode: true }` (CommonJS). No `output: "export"`, no `images` config, no rewrites, no env passthrough. (The app is **not** a static export.)
-- `tailwind.config.ts` — content globs for `app`, `components`, `hooks`, `lib`, `stores`; shadcn color tokens; `darkMode: ["class"]` (configured but no dark theme defined); custom `dashboard-grid` background image; `tailwindcss-animate` plugin.
-- `postcss.config.js` — `tailwindcss` + `autoprefixer`.
-- `tsconfig.json` — `strict: true`, `target: ES2017`, `moduleResolution: "bundler"`, `jsx: "preserve"`, `incremental: true`, path alias `"@/*": ["./*"]`.
-- `components.json` — shadcn/ui config: `style: "default"`, `rsc: true`, `tsx: true`, base color `slate`, `cssVariables: true`, aliases `@/components` and `@/lib/utils`.
+## System Context
 
-## Repository Layout
+```mermaid
+flowchart LR
+  User["User"] --> Browser["Browser / Next.js UI"]
+  Browser -->|"GET /, /login, /dashboard"| AppRouter["Next.js App Router"]
+  Browser -->|"credentialed REST"| Backend["FastAPI /api"]
+  Browser -->|"fetch ReadableStream SSE"| ChatSSE["/api/chat/message"]
+  Browser -->|"EventSource SSE"| NotifySSE["/api/notifications/stream"]
+  Backend -->|"sets/clears"| Cookie["httpOnly access_token cookie"]
+  Backend -->|"returns"| Blocks["structured chat content_blocks"]
 ```
+
+The frontend talks only to the FastAPI API URL configured by `NEXT_PUBLIC_API_URL`. Cookie creation, deletion, and validation are backend responsibilities.
+
+## Architectural Drivers
+
+| Driver | Architectural response |
+| --- | --- |
+| Auth cookie is httpOnly | Frontend checks only cookie presence in middleware/server redirects; `/auth/me` validates the session. |
+| Chat responses stream incrementally | `useChat` uses raw `fetch` and `ReadableStream` parsing instead of Axios. |
+| Notifications are long-lived | `useSSE` uses browser `EventSource` with credentials and reconnect backoff. |
+| Approval can arrive outside the active chat request | `ApprovalModal` is mounted globally in the dashboard layout and opened from notification state. |
+| Assistant messages are structured | `ConversationTurn` renders a typed `ChatContentBlock` union rather than parsing arbitrary UI state. |
+| Shared state is simple and local | Zustand stores own auth, chat, approval, and toast state. |
+
+## Solution Strategy
+
+The frontend uses a thin-client architecture:
+
+- **Server components and middleware** perform cookie-presence redirects.
+- **Client hooks** validate the session, call APIs, stream chat events, and subscribe to notifications.
+- **Zustand stores** hold dashboard state.
+- **Components** render state and dispatch user actions.
+- **Type definitions** encode the backend/frontend contract for conversations, drafts, SSE events, and content blocks.
+
+The backend remains authoritative. The frontend optimistically renders streaming placeholders but reloads conversation history from the backend after completion, approval-pending events, and notification events.
+
+## Major Components
+
+| Component | Responsibility | Key files |
+| --- | --- | --- |
+| App Router shell | Root layout, redirects, login page, dashboard shell, error boundaries. | `app/` |
+| Route middleware | Cookie-presence guard for `/dashboard` and `/login`. | `middleware.ts` |
+| API client | Axios instance, credential handling, 401 redirect, error normalization. | `lib/api.ts` |
+| Auth hook/store | Session hydration via `/auth/me`, logout, user/status state. | `hooks/useAuth.ts`, `stores/authStore.ts` |
+| Chat hook/store | Conversations, active messages, streaming request parsing, history reloads. | `hooks/useChat.ts`, `stores/chatStore.ts` |
+| Notification hook | Long-lived EventSource subscription and approval/send event handling. | `hooks/useSSE.ts` |
+| Approval state/modal | Editable draft review, approve/edit/reject submissions, pending guard. | `stores/approvalStore.ts`, `components/approval/ApprovalModal.tsx` |
+| Chat rendering | Assistant/user turn layout and structured block rendering. | `components/chat/ConversationTurn.tsx`, `ChatWindow.tsx` |
+| UI primitives | shadcn/Radix-derived primitives and custom toast rendering. | `components/ui/`, `hooks/use-toast.ts` |
+| Type contract | Shared frontend representation of backend responses and SSE events. | `types/index.ts` |
+
+## Runtime Views
+
+### Route and Session Flow
+
+```mermaid
+sequenceDiagram
+  participant Browser
+  participant Next as Next.js
+  participant API as FastAPI
+
+  Browser->>Next: GET /
+  Next->>Next: cookies().get("access_token")
+  Next-->>Browser: redirect /login or /dashboard
+  Browser->>Next: GET /dashboard
+  Next->>Next: middleware checks cookie presence
+  Browser->>API: GET /api/auth/me with cookie
+  API-->>Browser: user profile or 401
+  Browser->>Browser: authStore authenticated/unauthenticated
+```
+
+Middleware and the home page do not validate the token. They only route based on whether the cookie exists. Real validation happens through `useAuth()` calling `/auth/me`.
+
+### Chat Streaming Flow
+
+```mermaid
+sequenceDiagram
+  participant User
+  participant Input as InputBar
+  participant Hook as useChat
+  participant Store as chatStore
+  participant API as /api/chat/message
+  participant UI as ConversationTurn
+
+  User->>Input: submit prompt
+  Input->>Hook: sendMessage(text)
+  Hook->>API: ensure/create conversation if needed
+  Hook->>Store: append user message + assistant placeholder
+  Hook->>API: POST message, credentials include
+  API-->>Hook: SSE turn_started/token/approval_pending/done
+  Hook->>Store: update assistant placeholder
+  Hook->>API: reload /chat/history/{conversation_id}
+  Store-->>UI: render structured content blocks
+```
+
+Axios is not used for the streaming chat request because browser Axios cannot stream incremental SSE tokens in the required way. `useChat` manually parses `data:` events from the `ReadableStream`.
+
+### Notification and Approval Flow
+
+```mermaid
+sequenceDiagram
+  participant Dashboard
+  participant SSE as useSSE
+  participant Store as approvalStore
+  participant Modal as ApprovalModal
+  participant API as FastAPI
+  participant Chat as chatStore
+
+  Dashboard->>SSE: enable after authenticated
+  SSE->>API: EventSource /notifications/stream
+  API-->>SSE: approval_required(draft)
+  SSE->>Store: open(draft)
+  Store-->>Modal: show editable draft
+  Modal->>API: POST /approve/{draft_id}
+  Modal->>Store: markPending + close
+  API-->>SSE: email_sent/email_rejected/error
+  SSE->>Store: clearPending
+  SSE->>Chat: refresh active conversation history
+```
+
+`approvalStore.pendingDraftIds` prevents stale SSE events from reopening a draft while an approval/reject request is in flight.
+
+## State Architecture
+
+| Store | State owned | Notes |
+| --- | --- | --- |
+| `authStore` | `user`, auth `status`. | Hydrated by `/auth/me`; reset on logout or failed auth. |
+| `chatStore` | conversations, active conversation ID, messages, streaming flag. | Backend remains source of truth; history reloads replace message state. |
+| `approvalStore` | modal open state, editable draft, original draft, feedback, pending draft IDs. | Prevents duplicate modal opens for in-flight drafts. |
+| `useToastStore` | transient toast notifications. | Custom toast implementation used throughout hooks/components. |
+
+State is intentionally in-memory. Reloading the browser rehydrates from backend conversation and auth endpoints.
+
+## Data and UI Contract
+
+The backend returns assistant messages as a `ChatMessage` with optional `content_blocks`. The frontend supports these block types:
+
+| Block type | Rendered by | Purpose |
+| --- | --- | --- |
+| `markdown` | `MarkdownResponse` | Main assistant prose. |
+| `status` | `StatusPill` | Waiting, success, warning, or error state. |
+| `tool_action` | `ActionPill` | Completed/running tool activity labels. |
+| `email_list` | `EmailCard` list | Gmail read/search results. |
+| `summary` | `SummaryCard` | Inbox or thread summaries. |
+| `research_report` | `ResearchCard` | Tavily/web research notes. |
+| `draft_email` | `DraftEmailCard` | Inline draft artifact and approval/send state. |
+| `system_notice` | `StatusPill` | Generic informational notices. |
+
+If a backend message lacks blocks, `useChat` falls back to a single `markdown` block.
+
+## API and Integration Boundaries
+
+### Backend Base URL
+
+`NEXT_PUBLIC_API_URL` should point to the backend API prefix, for example:
+
+```text
+http://localhost:8000/api
+```
+
+The fallback is duplicated in:
+
+- `lib/api.ts`
+- `hooks/useChat.ts`
+- `hooks/useSSE.ts`
+
+Keep those in sync if the default changes.
+
+### API Access Patterns
+
+| Need | Mechanism | Why |
+| --- | --- | --- |
+| Standard REST | Shared Axios `api` instance | JSON requests, credentials, error normalization, 401 redirect. |
+| Chat streaming | Raw `fetch` + `ReadableStream` | Required for incremental SSE parsing. |
+| Long-lived notifications | Browser `EventSource` | Native SSE connection and reconnect behavior. |
+
+All API paths send cookies through `withCredentials: true` or `credentials: "include"`.
+
+## Routing and Component Boundaries
+
+### Server-Side / Edge Boundaries
+
+- `app/page.tsx` reads cookie presence and redirects to `/login` or `/dashboard`.
+- `middleware.ts` protects `/dashboard/:path*` and redirects `/login` to `/dashboard` when a cookie exists.
+- `app/layout.tsx`, `app/login/page.tsx`, and `app/dashboard/layout.tsx` are server components.
+
+### Client Boundaries
+
+Interactive modules are marked `"use client"`:
+
+- `app/dashboard/page.tsx`
+- `app/providers.tsx`
+- chat and approval components
+- hooks
+- stores
+- UI primitives that need browser behavior
+
+The active dashboard composition is:
+
+```text
+dashboard/layout.tsx
+  ApprovalModal                # global, opened by notification state
+  dashboard/page.tsx
+    ConversationSidebar        # conversations, user card, logout
+    ChatWindow                 # empty state + conversation turns
+    InputBar                   # prompt submission
+```
+
+## Deployment View
+
+The frontend is a Next.js 14 application using npm:
+
+- Development: `npm run dev`.
+- Production build: `npm run build`.
+- Runtime config: `NEXT_PUBLIC_API_URL`, `NEXT_PUBLIC_APP_NAME`.
+- `next.config.js` is minimal and does not use `output: "export"`.
+
+Because the app depends on server components, middleware, cookies, and runtime redirects, it should be deployed as a Next.js app server, not as a static export.
+
+The frontend and backend must be deployed with compatible cookie/CORS settings:
+
+- Backend `FRONTEND_URL` must match the browser origin.
+- Backend CORS must allow credentials.
+- Cookie `secure` behavior depends on backend `APP_ENV`.
+
+## Security and Trust Model
+
+- The backend sets and clears the `access_token` cookie.
+- The frontend checks cookie presence only for routing convenience.
+- The frontend validates sessions by calling `/auth/me`.
+- The frontend never reads Gmail tokens.
+- The frontend never sends Authorization bearer headers.
+- All state mutations that affect email sending go through `/api/approve/{draft_id}`.
+- Draft content is visible in the browser and should be treated as sensitive UI data.
+
+## Cross-Cutting Concepts
+
+### Error Handling
+
+`lib/api.ts` normalizes FastAPI error shapes into readable messages. Axios `401` responses redirect to `/login?next=...`, guarded to avoid loops. User-facing failures generally show toasts.
+
+### Streaming Consistency
+
+The frontend expects SSE payloads as JSON in `data:` lines. `useChat` handles `turn_started`, `token`, `approval_pending`, `turn_completed`, `done`, and `error`. `useSSE` handles `approval_required`, `email_sent`, `email_rejected`, and `error`.
+
+### Rendering Strategy
+
+The backend produces semantic blocks; the frontend renders them. This keeps UI formatting logic out of agent prompts and avoids frontend parsing of raw tool transcripts where possible.
+
+### Markdown Strategy
+
+`MarkdownResponse` is a small custom renderer for headings, blockquotes, ordered/unordered lists, bold, italic, and inline code. It is not a full Markdown engine.
+
+## Architectural Decisions
+
+| Decision | Status | Rationale / impact |
+| --- | --- | --- |
+| Use Next.js App Router with client-heavy dashboard | Accepted | Server routes handle redirects; browser components handle interactive chat/approval state. |
+| Keep auth cookie backend-owned | Accepted | Preserves httpOnly token handling and keeps validation on FastAPI. |
+| Use Zustand for dashboard state | Accepted | Small stores fit the dashboard's limited shared state needs without a larger data framework. |
+| Use raw `fetch` for chat SSE | Accepted | Required for incremental stream parsing. |
+| Use `EventSource` for notifications | Accepted | Native browser fit for long-lived server-pushed events. |
+| Mount approval modal globally | Accepted | Approval requests can arrive outside a single chat component lifecycle. |
+| Render backend-defined content blocks | Accepted | Keeps assistant turn semantics consistent across live and persisted history. |
+
+Create ADRs under `docs/adr/` if these decisions change or if a new cross-cutting frontend decision is introduced.
+
+## Quality Attribute Scenarios
+
+| Attribute | Scenario | Mechanism |
+| --- | --- | --- |
+| Security | A user opens `/dashboard` with a stale cookie. | `useAuth` calls `/auth/me`; failed validation resets auth state and API 401 redirects to login. |
+| Responsiveness | Agent work takes time. | Optimistic assistant placeholder plus streamed token/status updates. |
+| Recoverability | The chat stream finishes or is interrupted for approval. | Frontend reloads canonical history from `/chat/history/{conversation_id}`. |
+| Consistency | Approval notification arrives while modal request is in flight. | `pendingDraftIds` suppresses duplicate modal opens. |
+| Maintainability | Backend adds a new structured artifact. | Add a `ChatContentBlock` type and renderer case in one place. |
+| Operability | Notification stream drops. | `useSSE` reconnects with capped exponential backoff. |
+
+## Risks and Technical Debt
+
+| Risk / debt | Impact | Mitigation |
+| --- | --- | --- |
+| No frontend test setup | UI flows, SSE parsing, and approval state can regress silently. | Add Vitest/Testing Library or Playwright coverage before larger UI changes. |
+| API base fallback is duplicated | Defaults can drift across Axios, chat fetch, and EventSource. | Centralize API URL helper. |
+| Custom Markdown renderer is limited | Unexpected model output may render poorly. | Adopt a vetted Markdown renderer if richer output is needed. |
+| Cookie-presence routing can show dashboard briefly for invalid sessions | Middleware does not validate JWT. | Keep `/auth/me` hydration early; consider server validation only if backend session introspection is exposed safely. |
+| No generated API client | Backend/frontend contract drift is possible. | Add OpenAPI-generated types or contract tests. |
+| Draft content lives in browser state | Sensitive content can remain visible in memory while the app is open. | Clear stores on logout and avoid persistent client storage. |
+
+## Repository Map
+
+```text
 frontend/
-  middleware.ts
-  next.config.js
-  tailwind.config.ts
-  postcss.config.js
-  tsconfig.json
-  components.json
-  package.json
-  package-lock.json
-  .env.local.example
   app/
-    layout.tsx
-    page.tsx
-    providers.tsx
-    globals.css
-    error.tsx
-    global-error.tsx
-    login/page.tsx
-    auth/callback/page.tsx
+    layout.tsx              # root document and providers
+    page.tsx                # cookie-presence redirect
+    login/page.tsx          # Google login entry UI
     dashboard/
-      layout.tsx
-      page.tsx
+      layout.tsx            # dashboard shell + global ApprovalModal
+      page.tsx              # authenticated dashboard composition
   components/
-    approval/ApprovalModal.tsx
-    chat/
-      ChatWindow.tsx
-      ConversationSidebar.tsx
-      ConversationTurn.tsx
-      EmailCard.tsx
-      InputBar.tsx
-      MarkdownResponse.tsx
-      MessageBubble.tsx
-    notifications/NotificationToast.tsx
-    ui/
-      button.tsx
-      dialog.tsx
-      input.tsx
-      textarea.tsx
-      toast.tsx
-      toaster.tsx
+    approval/               # approval modal
+    chat/                   # sidebar, chat window, turns, cards, input, markdown
+    ui/                     # shadcn/Radix primitives
   hooks/
-    useAuth.ts
-    useChat.ts
-    useSSE.ts
-    use-toast.ts
-  lib/
-    api.ts
-    utils.ts
+    useAuth.ts              # session hydration/logout
+    useChat.ts              # conversations + chat stream
+    useSSE.ts               # notification stream
+    use-toast.ts            # toast state
   stores/
-    authStore.ts
-    chatStore.ts
-    approvalStore.ts
+    authStore.ts            # user/session state
+    chatStore.ts            # conversations/messages/streaming state
+    approvalStore.ts        # draft approval modal state
+  lib/
+    api.ts                  # Axios client and error handling
+    utils.ts                # cn helper
   types/
-    index.ts
+    index.ts                # backend/frontend contract types
 ```
+
+## Verification
+
+Use the smallest relevant check after frontend changes:
+
+- Lint: `npm run lint`
+- Build/type check: `npm run build`
+- Lightweight type check: `npx tsc --noEmit`
+
+Known caveat: no test script or test framework is currently configured.
+
+## Glossary
+
+- **Content block:** Typed backend response object rendered by `ConversationTurn`.
+- **Approval modal:** Global dialog for approving, editing, or rejecting pending email drafts.
+- **Chat SSE:** Request-scoped stream returned by `/api/chat/message`.
+- **Notification SSE:** Long-lived EventSource stream returned by `/api/notifications/stream`.
+- **Cookie presence:** Frontend routing heuristic; not proof of a valid session.
+- **Canonical history:** Backend-reconstructed conversation history from LangGraph checkpoints and draft rows.
+
+## Update Policy
+
+Update this document when:
+
+- auth routing or session validation behavior changes
+- frontend/backend API or SSE event contracts change
+- a new content block type is added
+- shared state ownership moves between stores/hooks/components
+- dashboard layout or approval flow changes materially
+- deployment assumptions or required environment variables change
+- a major UI risk is resolved or introduced
