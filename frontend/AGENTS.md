@@ -62,12 +62,9 @@ Notes:
 - If adding tests later, add a `test` script and a framework (e.g. vitest) to `package.json` and create the config. Until then, rely on `npm run lint` and `npm run build` (which type-checks).
 
 ## Required Skills
-The frontend is plain Next.js + Zustand + Tailwind calling the FastAPI backend. There are **no dedicated React/Next.js/Tailwind/TypeScript skills** in the installed catalog (it is weighted toward agent frameworks, GCP/GWS, and Cloudflare), so do not invent framework skills. Invoke the general/process skills that do apply:
-
-- **Use `web-perf`** for Core Web Vitals (LCP/INP/CLS), render-blocking analysis, and bundle/dependency profiling via the Chrome DevTools MCP.
-- **Use `test-driven-development`** for red-green-refactor on hooks, stores, and components — especially relevant since **no frontend test setup exists yet**.
-
-No frontend-specific MCP servers are required; the LangChain docs MCP is a backend-only concern.
+- **Use `nextjs`** for App Router structure, static export behavior, routing, layout, and build issues.
+- **Use `shadcn`** for component composition, dialogs, forms, sheets, overlays, and design-system consistency.
+- **Use `react-best-practices`** for state flow, rendering, TSX decisions, and modern React usage.
 
 ## Related Docs
 - [docs/architecture.md](docs/architecture.md) — full frontend architecture (App Router structure, components, hooks, stores, auth flow, approval sub-flow, config files).
