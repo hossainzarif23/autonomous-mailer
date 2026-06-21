@@ -64,3 +64,19 @@ class ApprovalBlockedEventTests(TestCase):
         self.assertEqual(event["turn_id"], "turn-123")
         self.assertIn("pending draft", event["content"].lower())
         self.assertNotIn("{", event["content"])
+
+    def test_blocked_approval_events_return_block_then_done(self):
+        draft_id = uuid.uuid4()
+        conversation_id = uuid.uuid4()
+
+        events = chat._blocked_approval_events(
+            draft_id=str(draft_id),
+            conversation_id=str(conversation_id),
+            turn_id="turn-123",
+        )
+
+        self.assertEqual([event["type"] for event in events], ["approval_blocked", "done"])
+        self.assertEqual(events[0]["draft_id"], str(draft_id))
+        self.assertEqual(events[0]["conversation_id"], str(conversation_id))
+        self.assertEqual(events[0]["turn_id"], "turn-123")
+        self.assertEqual(events[1], {"type": "done", "turn_id": "turn-123"})
