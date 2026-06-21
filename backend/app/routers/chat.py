@@ -583,6 +583,8 @@ async def stream_chat_message(
 
     async def event_stream():
         turn_id = str(uuid.uuid4())
+        seen_started_tool_call_ids: set[str] = set()
+        seen_completed_tool_call_ids: set[str] = set()
         yield _sse({"type": "turn_started", "turn_id": turn_id})
         try:
             blocked_events = await _pending_approval_blocked_stream_events(
@@ -622,6 +624,10 @@ async def stream_chat_message(
                     tool_calls = _tool_call_details(chunk)
                     if tool_calls:
                         for tool_name, tool_call_id in tool_calls:
+                            if tool_call_id is not None:
+                                if tool_call_id in seen_started_tool_call_ids:
+                                    continue
+                                seen_started_tool_call_ids.add(tool_call_id)
                             yield _sse(
                                 _action_started_event(
                                     tool_name,
@@ -640,11 +646,16 @@ async def stream_chat_message(
                             continue
                         for message in node_update.get("messages", []):
                             if isinstance(message, ToolMessage) and message.name:
+                                tool_call_id = getattr(message, "tool_call_id", None)
+                                if tool_call_id is not None:
+                                    if tool_call_id in seen_completed_tool_call_ids:
+                                        continue
+                                    seen_completed_tool_call_ids.add(tool_call_id)
                                 yield _sse(
                                     _action_completed_event(
                                         message.name,
                                         turn_id=turn_id,
-                                        tool_call_id=getattr(message, "tool_call_id", None),
+                                        tool_call_id=tool_call_id,
                                     )
                                 )
                     interrupts = updates.get("__interrupt__", ())

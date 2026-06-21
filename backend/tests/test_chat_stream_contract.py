@@ -194,6 +194,16 @@ class StreamRouteContractTests(IsolatedAsyncioTestCase):
                 "type": "messages",
                 "data": [
                     SimpleNamespace(
+                        content="",
+                        tool_calls=[{"name": "call_web_search", "id": "call-1", "args": {"topic": "AI again"}}],
+                    ),
+                    {},
+                ],
+            }
+            yield {
+                "type": "messages",
+                "data": [
+                    SimpleNamespace(
                         content='{"query":"AI","results":[{"url":"https://example.com"}]}',
                         tool_calls=[],
                     ),
@@ -216,7 +226,12 @@ class StreamRouteContractTests(IsolatedAsyncioTestCase):
                                 content='{"secret":"raw"}',
                                 name="call_web_search",
                                 tool_call_id="call-1",
-                            )
+                            ),
+                            chat.ToolMessage(
+                                content='{"secret":"raw-duplicate"}',
+                                name="call_web_search",
+                                tool_call_id="call-1",
+                            ),
                         ]
                     }
                 },
