@@ -81,6 +81,30 @@ def _blocked_approval_events(*, draft_id: str, conversation_id: str, turn_id: st
     ]
 
 
+async def _pending_approval_blocked_stream_events(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    conversation_id: str,
+    turn_id: str,
+) -> list[str] | None:
+    pending_draft = await _get_pending_approval_draft(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    if pending_draft is None:
+        return None
+    return [
+        _sse(event)
+        for event in _blocked_approval_events(
+            draft_id=str(pending_draft.id),
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+        )
+    ]
+
+
 def _markdown_block(content: str) -> dict[str, Any]:
     return {"type": "markdown", "content": content}
 
@@ -497,18 +521,15 @@ async def stream_chat_message(
         turn_id = str(uuid.uuid4())
         yield _sse({"type": "turn_started", "turn_id": turn_id})
         try:
-            pending_draft = await _get_pending_approval_draft(
+            blocked_events = await _pending_approval_blocked_stream_events(
                 db,
                 user_id=current_user.id,
                 conversation_id=payload.conversation_id,
+                turn_id=turn_id,
             )
-            if pending_draft is not None:
-                for event in _blocked_approval_events(
-                    draft_id=str(pending_draft.id),
-                    conversation_id=payload.conversation_id,
-                    turn_id=turn_id,
-                ):
-                    yield _sse(event)
+            if blocked_events is not None:
+                for event in blocked_events:
+                    yield event
                 return
             access_token = await get_valid_access_token(str(current_user.id), db)
             context = AgentContext(
