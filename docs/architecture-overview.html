@@ -498,7 +498,7 @@
         <span><i class="dot" style="background: var(--green);"></i>Persistence</span>
       </div>
       <div class="diagram-wrap">
-        <svg viewBox="0 0 1120 520" role="img" aria-label="Autonomous Email Agent system context diagram">
+        <svg viewBox="0 0 1120 540" role="img" aria-label="Autonomous Email Agent system context diagram">
           <defs>
             <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L0,6 L9,3 z" fill="#64748b"></path>
@@ -508,55 +508,60 @@
             </filter>
           </defs>
 
-          <rect x="30" y="72" width="210" height="132" rx="18" fill="#eff6ff" stroke="#bfdbfe" filter="url(#soft-shadow)"></rect>
-          <text x="135" y="122" text-anchor="middle" fill="#1e3a8a" font-size="20" font-weight="800">Next.js UI</text>
-          <text x="135" y="150" text-anchor="middle" fill="#475569" font-size="14">dashboard, chat, approvals</text>
-          <text x="135" y="174" text-anchor="middle" fill="#475569" font-size="14">Zustand + SSE clients</text>
+          <rect x="38" y="130" width="220" height="128" rx="18" fill="#eff6ff" stroke="#bfdbfe" filter="url(#soft-shadow)"></rect>
+          <text x="148" y="178" text-anchor="middle" fill="#1e3a8a" font-size="20" font-weight="800">Next.js UI</text>
+          <text x="148" y="206" text-anchor="middle" fill="#475569" font-size="14">dashboard, chat, approvals</text>
+          <text x="148" y="230" text-anchor="middle" fill="#475569" font-size="14">Zustand + SSE clients</text>
 
-          <rect x="405" y="54" width="310" height="340" rx="24" fill="#fff7ed" stroke="#fed7aa" filter="url(#soft-shadow)"></rect>
-          <text x="560" y="98" text-anchor="middle" fill="#7c2d12" font-size="22" font-weight="800">FastAPI Backend</text>
-          <text x="560" y="126" text-anchor="middle" fill="#475569" font-size="14">trusted service boundary</text>
+          <rect x="405" y="96" width="340" height="326" rx="24" fill="#fff7ed" stroke="#fed7aa" filter="url(#soft-shadow)"></rect>
+          <text x="575" y="142" text-anchor="middle" fill="#7c2d12" font-size="22" font-weight="800">FastAPI Backend</text>
+          <text x="575" y="170" text-anchor="middle" fill="#475569" font-size="14">trusted service boundary</text>
 
-          <rect x="435" y="156" width="250" height="48" rx="12" fill="#ffffff" stroke="#fed7aa"></rect>
-          <text x="560" y="186" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">auth, chat, emails, approve, notifications</text>
+          <rect x="448" y="202" width="254" height="58" rx="12" fill="#ffffff" stroke="#fed7aa"></rect>
+          <text x="575" y="226" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">Auth, chat, email APIs</text>
+          <text x="575" y="246" text-anchor="middle" fill="#0f172a" font-size="14" font-weight="700">Approval + notifications</text>
 
-          <rect x="435" y="226" width="250" height="48" rx="12" fill="#ffffff" stroke="#fed7aa"></rect>
-          <text x="560" y="256" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">LangGraph coordinator + agents</text>
+          <rect x="448" y="284" width="254" height="52" rx="12" fill="#ffffff" stroke="#fed7aa"></rect>
+          <text x="575" y="316" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">LangGraph coordinator + agents</text>
 
-          <rect x="435" y="296" width="250" height="48" rx="12" fill="#ffffff" stroke="#fed7aa"></rect>
-          <text x="560" y="326" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">HITL draft persistence + resume</text>
+          <rect x="448" y="360" width="254" height="52" rx="12" fill="#ffffff" stroke="#fed7aa"></rect>
+          <text x="575" y="392" text-anchor="middle" fill="#0f172a" font-size="15" font-weight="700">HITL draft persistence + resume</text>
 
-          <rect x="860" y="52" width="220" height="78" rx="18" fill="#f0fdfa" stroke="#99f6e4" filter="url(#soft-shadow)"></rect>
-          <text x="970" y="88" text-anchor="middle" fill="#134e4a" font-size="18" font-weight="800">Google OAuth</text>
-          <text x="970" y="110" text-anchor="middle" fill="#475569" font-size="13">identity and Gmail consent</text>
+          <rect x="858" y="32" width="224" height="78" rx="18" fill="#f0fdfa" stroke="#99f6e4" filter="url(#soft-shadow)"></rect>
+          <text x="970" y="68" text-anchor="middle" fill="#134e4a" font-size="18" font-weight="800">Google OAuth</text>
+          <text x="970" y="90" text-anchor="middle" fill="#475569" font-size="13">identity and Gmail consent</text>
 
-          <rect x="860" y="166" width="220" height="78" rx="18" fill="#f0fdfa" stroke="#99f6e4" filter="url(#soft-shadow)"></rect>
-          <text x="970" y="202" text-anchor="middle" fill="#134e4a" font-size="18" font-weight="800">Gmail API</text>
-          <text x="970" y="224" text-anchor="middle" fill="#475569" font-size="13">read, search, send</text>
+          <rect x="858" y="178" width="224" height="78" rx="18" fill="#f0fdfa" stroke="#99f6e4" filter="url(#soft-shadow)"></rect>
+          <text x="970" y="214" text-anchor="middle" fill="#134e4a" font-size="18" font-weight="800">Gmail API</text>
+          <text x="970" y="236" text-anchor="middle" fill="#475569" font-size="13">read, search, send</text>
 
-          <rect x="860" y="280" width="220" height="78" rx="18" fill="#f0fdfa" stroke="#99f6e4" filter="url(#soft-shadow)"></rect>
-          <text x="970" y="316" text-anchor="middle" fill="#134e4a" font-size="18" font-weight="800">OpenRouter + Tavily</text>
-          <text x="970" y="338" text-anchor="middle" fill="#475569" font-size="13">LLM orchestration and research</text>
+          <rect x="858" y="300" width="224" height="78" rx="18" fill="#f0fdfa" stroke="#99f6e4" filter="url(#soft-shadow)"></rect>
+          <text x="970" y="336" text-anchor="middle" fill="#134e4a" font-size="18" font-weight="800">OpenRouter + Tavily</text>
+          <text x="970" y="358" text-anchor="middle" fill="#475569" font-size="13">LLM orchestration and research</text>
 
-          <rect x="405" y="430" width="310" height="70" rx="18" fill="#f0fdf4" stroke="#bbf7d0" filter="url(#soft-shadow)"></rect>
-          <text x="560" y="460" text-anchor="middle" fill="#14532d" font-size="18" font-weight="800">Postgres</text>
-          <text x="560" y="482" text-anchor="middle" fill="#475569" font-size="13">app tables + LangGraph checkpoints</text>
+          <rect x="420" y="458" width="310" height="64" rx="18" fill="#f0fdf4" stroke="#bbf7d0" filter="url(#soft-shadow)"></rect>
+          <text x="575" y="486" text-anchor="middle" fill="#14532d" font-size="18" font-weight="800">Postgres</text>
+          <text x="575" y="508" text-anchor="middle" fill="#475569" font-size="13">app tables + LangGraph checkpoints</text>
 
-          <path d="M240 138 C310 138 330 150 405 180" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
-          <text x="318" y="125" text-anchor="middle" fill="#475569" font-size="13">REST + chat SSE</text>
+          <path d="M258 184 C312 184 340 196 403 226" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
+          <rect x="286" y="156" width="104" height="22" rx="8" fill="#ffffff" stroke="#e2e8f0"></rect>
+          <text x="338" y="171" text-anchor="middle" fill="#475569" font-size="13">REST + chat SSE</text>
 
-          <path d="M405 326 C325 350 292 342 240 204" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
-          <text x="312" y="336" text-anchor="middle" fill="#475569" font-size="13">notification SSE</text>
+          <path d="M405 384 C335 388 292 342 258 258" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
+          <rect x="276" y="342" width="112" height="22" rx="8" fill="#ffffff" stroke="#e2e8f0"></rect>
+          <text x="332" y="357" text-anchor="middle" fill="#475569" font-size="13">notification SSE</text>
 
-          <path d="M715 91 L858 91" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
-          <path d="M715 205 L858 205" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
-          <path d="M715 319 L858 319" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
-          <path d="M560 394 L560 428" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
+          <path d="M745 216 L856 216" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
+          <path d="M745 338 L856 338" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
+          <path d="M575 422 L575 456" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow)"></path>
 
-          <path d="M135 72 C135 20 910 18 950 51" fill="none" stroke="#64748b" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arrow)"></path>
-          <text x="390" y="33" text-anchor="middle" fill="#475569" font-size="13">login redirect</text>
-          <path d="M860 78 C800 68 770 68 715 92" fill="none" stroke="#64748b" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arrow)"></path>
-          <text x="790" y="60" text-anchor="middle" fill="#475569" font-size="13">callback sets cookie</text>
+          <path d="M148 130 C176 42 645 12 858 58" fill="none" stroke="#64748b" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arrow)"></path>
+          <rect x="356" y="62" width="90" height="22" rx="8" fill="#ffffff" stroke="#e2e8f0"></rect>
+          <text x="401" y="77" text-anchor="middle" fill="#475569" font-size="13">login redirect</text>
+
+          <path d="M930 110 C900 140 760 138 650 98" fill="none" stroke="#64748b" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arrow)"></path>
+          <rect x="756" y="150" width="118" height="22" rx="8" fill="#ffffff" stroke="#e2e8f0"></rect>
+          <text x="815" y="165" text-anchor="middle" fill="#475569" font-size="13">callback sets cookie</text>
         </svg>
         <p class="caption">
           The browser receives an httpOnly <code>access_token</code> cookie from the backend OAuth callback.
@@ -630,48 +635,75 @@
         <p class="section-note">The most important runtime flow is the human-in-the-loop send boundary. It prevents non-idempotent Gmail sends before review.</p>
       </div>
       <div class="diagram-wrap">
-        <svg viewBox="0 0 1120 330" role="img" aria-label="Human approval and LangGraph resume flow">
+        <svg viewBox="0 0 1120 360" role="img" aria-label="Human approval and LangGraph resume flow">
           <defs>
             <marker id="arrow-approval" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
               <path d="M0,0 L0,6 L9,3 z" fill="#64748b"></path>
             </marker>
           </defs>
 
-          <path d="M138 164 L314 164 L314 92 L480 92" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
-          <path d="M138 164 L314 164 L314 238 L480 238" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
-          <path d="M660 92 L780 92 L780 164 L922 164" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
-          <path d="M660 238 L780 238 L780 164" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
-          <path d="M922 190 C808 300 306 300 152 190" fill="none" stroke="#64748b" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arrow-approval)"></path>
+          <path d="M176 170 L220 170" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
+          <path d="M376 170 L420 170" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
+          <path d="M576 170 L620 170" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
+          <path d="M776 170 L820 170" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
+          <path d="M956 170 L1000 170" fill="none" stroke="#64748b" stroke-width="2.4" marker-end="url(#arrow-approval)"></path>
+
+          <path d="M298 210 L298 292 L886 292 L886 218" fill="none" stroke="#64748b" stroke-width="2.2" stroke-dasharray="7 6" marker-end="url(#arrow-approval)"></path>
+          <rect x="536" y="246" width="122" height="24" rx="8" fill="#ffffff" stroke="#e2e8f0"></rect>
+          <text x="597" y="262" text-anchor="middle" fill="#475569" font-size="13">read/update draft</text>
 
           <g>
-            <rect x="30" y="124" width="160" height="80" rx="16" fill="#fff7ed" stroke="#fed7aa"></rect>
-            <text x="110" y="158" text-anchor="middle" fill="#7c2d12" font-size="16" font-weight="800">send_email</text>
-            <text x="110" y="181" text-anchor="middle" fill="#64748b" font-size="13">interrupts first</text>
+            <circle cx="42" cy="120" r="16" fill="#b45309"></circle>
+            <text x="42" y="126" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="800">1</text>
+            <rect x="36" y="132" width="140" height="76" rx="16" fill="#fff7ed" stroke="#fed7aa"></rect>
+            <text x="106" y="164" text-anchor="middle" fill="#7c2d12" font-size="16" font-weight="800">send_email</text>
+            <text x="106" y="186" text-anchor="middle" fill="#64748b" font-size="13">interrupts first</text>
           </g>
 
           <g>
-            <rect x="480" y="54" width="180" height="76" rx="16" fill="#eff6ff" stroke="#bfdbfe"></rect>
-            <text x="570" y="86" text-anchor="middle" fill="#1e3a8a" font-size="16" font-weight="800">EmailDraft</text>
-            <text x="570" y="108" text-anchor="middle" fill="#64748b" font-size="13">pending approval</text>
+            <circle cx="242" cy="120" r="16" fill="#2563eb"></circle>
+            <text x="242" y="126" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="800">2</text>
+            <rect x="220" y="132" width="156" height="76" rx="16" fill="#eff6ff" stroke="#bfdbfe"></rect>
+            <text x="298" y="164" text-anchor="middle" fill="#1e3a8a" font-size="16" font-weight="800">EmailDraft</text>
+            <text x="298" y="186" text-anchor="middle" fill="#64748b" font-size="13">pending approval</text>
           </g>
 
           <g>
-            <rect x="480" y="200" width="180" height="76" rx="16" fill="#eff6ff" stroke="#bfdbfe"></rect>
-            <text x="570" y="232" text-anchor="middle" fill="#1e3a8a" font-size="16" font-weight="800">Approval modal</text>
-            <text x="570" y="254" text-anchor="middle" fill="#64748b" font-size="13">approve, edit, reject</text>
+            <circle cx="442" cy="120" r="16" fill="#2563eb"></circle>
+            <text x="442" y="126" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="800">3</text>
+            <rect x="420" y="132" width="156" height="76" rx="16" fill="#eff6ff" stroke="#bfdbfe"></rect>
+            <text x="498" y="164" text-anchor="middle" fill="#1e3a8a" font-size="16" font-weight="800">Notify UI</text>
+            <text x="498" y="186" text-anchor="middle" fill="#64748b" font-size="13">approval_required SSE</text>
           </g>
 
           <g>
-            <rect x="922" y="124" width="168" height="80" rx="16" fill="#f0fdf4" stroke="#bbf7d0"></rect>
-            <text x="1006" y="158" text-anchor="middle" fill="#14532d" font-size="16" font-weight="800">Resume thread</text>
-            <text x="1006" y="181" text-anchor="middle" fill="#64748b" font-size="13">send or rewrite</text>
+            <circle cx="642" cy="120" r="16" fill="#2563eb"></circle>
+            <text x="642" y="126" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="800">4</text>
+            <rect x="620" y="132" width="156" height="76" rx="16" fill="#eff6ff" stroke="#bfdbfe"></rect>
+            <text x="698" y="164" text-anchor="middle" fill="#1e3a8a" font-size="16" font-weight="800">Approval modal</text>
+            <text x="698" y="186" text-anchor="middle" fill="#64748b" font-size="13">approve, edit, reject</text>
           </g>
 
-          <text x="304" y="80" text-anchor="middle" fill="#64748b" font-size="13">persist draft</text>
-          <text x="292" y="254" text-anchor="middle" fill="#64748b" font-size="13">SSE opens UI</text>
-          <text x="778" y="74" text-anchor="middle" fill="#64748b" font-size="13">load decision</text>
-          <text x="780" y="253" text-anchor="middle" fill="#64748b" font-size="13">POST /approve</text>
-          <text x="528" y="315" text-anchor="middle" fill="#64748b" font-size="13">same LangGraph conversation checkpoint</text>
+          <g>
+            <circle cx="842" cy="120" r="16" fill="#b45309"></circle>
+            <text x="842" y="126" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="800">5</text>
+            <rect x="820" y="132" width="136" height="86" rx="16" fill="#fff7ed" stroke="#fed7aa"></rect>
+            <text x="888" y="162" text-anchor="middle" fill="#7c2d12" font-size="16" font-weight="800">Approve API</text>
+            <text x="888" y="184" text-anchor="middle" fill="#64748b" font-size="13">POST decision</text>
+            <text x="888" y="202" text-anchor="middle" fill="#64748b" font-size="13">Command(resume)</text>
+          </g>
+
+          <g>
+            <circle cx="1022" cy="120" r="16" fill="#15803d"></circle>
+            <text x="1022" y="126" text-anchor="middle" fill="#ffffff" font-size="14" font-weight="800">6</text>
+            <rect x="1000" y="132" width="104" height="86" rx="16" fill="#f0fdf4" stroke="#bbf7d0"></rect>
+            <text x="1052" y="162" text-anchor="middle" fill="#14532d" font-size="15" font-weight="800">Resume</text>
+            <text x="1052" y="184" text-anchor="middle" fill="#64748b" font-size="13">send or</text>
+            <text x="1052" y="202" text-anchor="middle" fill="#64748b" font-size="13">rewrite</text>
+          </g>
+
+          <rect x="356" y="58" width="408" height="28" rx="10" fill="#f8fafc" stroke="#e2e8f0"></rect>
+          <text x="560" y="77" text-anchor="middle" fill="#475569" font-size="13">Primary path: interrupt, persist, notify, review, resume the same LangGraph thread</text>
         </svg>
         <p class="caption">
           Approve and edit decisions resume the same checkpoint and allow Gmail send. Reject decisions mark the draft rejected and return feedback to the coordinator;
