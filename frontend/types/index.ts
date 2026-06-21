@@ -67,6 +67,7 @@ export interface ToolActionBlock {
   label: string;
   state: "running" | "complete" | "waiting" | "error";
   detail?: string | null;
+  tool_call_id?: string | null;
 }
 
 export interface EmailListBlock {
