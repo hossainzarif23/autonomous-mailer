@@ -3,13 +3,14 @@ from __future__ import annotations
 import os
 from functools import lru_cache
 
-from langchain_openrouter import ChatOpenRouter
+# from langchain_openrouter import ChatOpenRouter
+from langchain_google_genai import ChatGoogleGenerativeAI
 
 from app.config import settings
 
 
 @lru_cache
-def get_llm() -> ChatOpenRouter:
+def get_llm() -> ChatGoogleGenerativeAI:
     if settings.LANGSMITH_TRACING:
         os.environ["LANGSMITH_TRACING"] = "true"
         os.environ["LANGCHAIN_TRACING_V2"] = "true"
@@ -18,11 +19,12 @@ def get_llm() -> ChatOpenRouter:
         if settings.LANGSMITH_API_KEY:
             os.environ["LANGSMITH_API_KEY"] = settings.LANGSMITH_API_KEY
 
-    return ChatOpenRouter(
-        model="qwen/qwen3.6-plus-preview:free",
-        temperature=0.1,
-        max_tokens=4096,
-        app_url=settings.APP_URL,
-        app_title="Email Agent",
-        api_key=settings.OPENROUTER_API_KEY,
+    ChatGoogleGenerativeAI(
+        model=os.getenv("GEMINI_MODEL", "gemini-3.1-flash-lite"),
+        google_api_key=os.getenv("GOOGLE_API_KEY"),
+        temperature=0.7,
+        top_p=0.95,
+        top_k=40,
+        max_output_tokens=32768,
+        thinking_level="medium",
     )
