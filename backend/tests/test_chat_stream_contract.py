@@ -167,7 +167,7 @@ class BlockedApprovalStreamTests(IsolatedAsyncioTestCase):
 
 
 class StreamRouteContractTests(IsolatedAsyncioTestCase):
-    async def test_stream_chat_message_generates_fallback_tool_call_ids_for_idless_calls(self):
+    async def test_stream_chat_message_emits_distinct_fallback_tool_call_ids_for_repeated_idless_calls(self):
         payload = SimpleNamespace(conversation_id=str(uuid.uuid4()), message="research AI")
         current_user = SimpleNamespace(id=uuid.uuid4())
         conversation = SimpleNamespace(
@@ -209,6 +209,11 @@ class StreamRouteContractTests(IsolatedAsyncioTestCase):
                                 content='{"secret":"raw"}',
                                 name="call_web_search",
                                 tool_call_id="",
+                            ),
+                            chat.ToolMessage(
+                                content='{"secret":"raw-duplicate"}',
+                                name="call_web_search",
+                                tool_call_id="",
                             )
                         ]
                     }
@@ -237,13 +242,17 @@ class StreamRouteContractTests(IsolatedAsyncioTestCase):
 
         events = [json.loads(chunk.split("data: ", 1)[1]) for chunk in chunks if chunk.startswith("data: ")]
         event_types = [event["type"] for event in events]
-        self.assertEqual(event_types.count("action_started"), 1)
-        self.assertEqual(event_types.count("action_completed"), 1)
+        self.assertEqual(event_types.count("action_started"), 2)
+        self.assertEqual(event_types.count("action_completed"), 2)
 
-        action_started = next(event for event in events if event["type"] == "action_started")
-        action_completed = next(event for event in events if event["type"] == "action_completed")
-        self.assertTrue(action_started["tool_call_id"].startswith("generated:"))
-        self.assertEqual(action_completed["tool_call_id"], action_started["tool_call_id"])
+        action_started_events = [event for event in events if event["type"] == "action_started"]
+        action_completed_events = [event for event in events if event["type"] == "action_completed"]
+        self.assertTrue(all(event["tool_call_id"].startswith("generated:") for event in action_started_events))
+        self.assertEqual(len({event["tool_call_id"] for event in action_started_events}), 2)
+        self.assertEqual(
+            [event["tool_call_id"] for event in action_completed_events],
+            [event["tool_call_id"] for event in action_started_events],
+        )
 
     async def test_stream_chat_message_preserves_tool_call_ids_and_filters_raw_tool_payloads(self):
         payload = SimpleNamespace(conversation_id=str(uuid.uuid4()), message="research AI")

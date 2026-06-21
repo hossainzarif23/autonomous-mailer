@@ -615,8 +615,6 @@ async def stream_chat_message(
         turn_id = str(uuid.uuid4())
         seen_started_tool_call_ids: set[str] = set()
         seen_completed_tool_call_ids: set[str] = set()
-        seen_idless_started_signatures: set[str] = set()
-        seen_idless_completed_signatures: set[str] = set()
         pending_idless_tool_call_ids_by_name: dict[str, list[str]] = {}
         generated_tool_call_index = 0
         yield _sse({"type": "turn_started", "turn_id": turn_id})
@@ -668,10 +666,6 @@ async def stream_chat_message(
                                 occurrence_index=generated_tool_call_index + 1,
                             )
                             if not raw_tool_call_id:
-                                signature = _tool_call_signature(tool_call)
-                                if signature in seen_idless_started_signatures:
-                                    continue
-                                seen_idless_started_signatures.add(signature)
                                 generated_tool_call_index += 1
                                 pending_idless_tool_call_ids_by_name.setdefault(tool_name, []).append(tool_call_id)
                             else:
@@ -698,10 +692,6 @@ async def stream_chat_message(
                             if isinstance(message, ToolMessage) and message.name:
                                 tool_call_id = getattr(message, "tool_call_id", None)
                                 if not tool_call_id:
-                                    signature = _tool_message_signature(message)
-                                    if signature in seen_idless_completed_signatures:
-                                        continue
-                                    seen_idless_completed_signatures.add(signature)
                                     pending_ids = pending_idless_tool_call_ids_by_name.get(message.name)
                                     if pending_ids:
                                         tool_call_id = pending_ids.pop(0)
