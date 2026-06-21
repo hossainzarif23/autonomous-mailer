@@ -339,9 +339,6 @@ export function useChat() {
                 is_waiting_approval: true
               }
             });
-            if (!didBlockForApproval) {
-              await reloadConversation(conversationId);
-            }
           } else if (payload.type === "turn_completed" || payload.type === "done") {
             didCompleteTurn = true;
             if (payload.type === "done") {
