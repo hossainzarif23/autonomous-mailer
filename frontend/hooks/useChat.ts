@@ -13,6 +13,14 @@ function buildStatusBlock(label: string, tone: "neutral" | "pending" | "success"
   return { type: "status", label, tone, detail };
 }
 
+function buildToolActionBlock(
+  label: string,
+  state: "running" | "complete" | "waiting" | "error",
+  detail?: string
+): ChatContentBlock {
+  return { type: "tool_action", label, state, detail };
+}
+
 export function useChat() {
   const {
     activeConversationId,
@@ -190,6 +198,35 @@ export function useChat() {
                 buildMarkdownBlock(assistantContent)
               ]
             });
+          } else if (payload.type === "action_started" || payload.type === "action_completed") {
+            const toolLabel = payload.label ?? payload.tool ?? "Action";
+            const toolState = payload.type === "action_completed" ? "complete" : "running";
+            const safeDetail = payload.content?.trim() || undefined;
+            updateMessage(assistantId, {
+              content: assistantContent,
+              status: "streaming",
+              content_blocks: [
+                buildStatusBlock("Working", "pending", safeDetail ?? "The agent is using a tool."),
+                buildToolActionBlock(toolLabel, toolState, safeDetail),
+                ...(assistantContent ? [buildMarkdownBlock(assistantContent)] : [])
+              ]
+            });
+          } else if (payload.type === "approval_blocked") {
+            const blockedMessage = payload.content || "Review the pending draft before sending another message in this conversation.";
+            updateMessage(assistantId, {
+              content: blockedMessage,
+              status: "waiting_approval",
+              content_blocks: [buildStatusBlock("Waiting for approval", "pending", blockedMessage)],
+              metadata: {
+                draft_id: payload.draft_id,
+                is_waiting_approval: true
+              }
+            });
+            toast({
+              title: "Approval Required",
+              description: blockedMessage
+            });
+            await reloadConversation(conversationId);
           } else if (payload.type === "approval_pending") {
             updateMessage(assistantId, {
               status: "waiting_approval",

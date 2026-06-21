@@ -135,6 +135,7 @@ export interface SSEEvent {
     | "action_started"
     | "action_completed"
     | "artifact_available"
+    | "approval_blocked"
     | "approval_pending"
     | "approval_required"
     | "email_sent"
@@ -145,6 +146,9 @@ export interface SSEEvent {
     | "ping";
   turn_id?: string;
   content?: string;
+  tool?: string;
+  label?: string;
+  tool_call_id?: string;
   draft_id?: string;
   conversation_id?: string;
   draft?: ApprovalDraftPayload;
