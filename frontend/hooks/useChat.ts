@@ -102,8 +102,11 @@ function mergeApprovalBlocks(
   fallbackMarkdown: string
 ): ChatContentBlock[] {
   const preservedBlocks = (currentBlocks ?? []).filter((block) => block.type !== "status");
-  if (preservedBlocks.length > 0) {
-    return [buildStatusBlock("Waiting for approval", "pending", fallbackMarkdown), ...preservedBlocks];
+  const hasMarkdownBlock = preservedBlocks.some((block) => block.type === "markdown");
+  const mergedBlocks = hasMarkdownBlock || !fallbackMarkdown ? preservedBlocks : [...preservedBlocks, buildMarkdownBlock(fallbackMarkdown)];
+
+  if (mergedBlocks.length > 0) {
+    return [buildStatusBlock("Waiting for approval", "pending", fallbackMarkdown), ...mergedBlocks];
   }
 
   return [buildStatusBlock("Waiting for approval", "pending", fallbackMarkdown), buildMarkdownBlock(fallbackMarkdown)];
@@ -249,8 +252,7 @@ export function useChat() {
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantContent = "";
-      let didCompleteTurn = false;
-      let didReceiveDone = false;
+      let didReloadConversation = false;
       let didBlockForApproval = false;
 
       while (true) {
@@ -340,12 +342,14 @@ export function useChat() {
               }
             });
           } else if (payload.type === "turn_completed" || payload.type === "done") {
-            didCompleteTurn = true;
             if (payload.type === "done") {
-              didReceiveDone = true;
-            }
-            if (!didBlockForApproval) {
+              if (!didReloadConversation) {
+                await reloadConversation(conversationId);
+                didReloadConversation = true;
+              }
+            } else if (!didBlockForApproval && !didReloadConversation) {
               await reloadConversation(conversationId);
+              didReloadConversation = true;
             }
           } else if (payload.type === "error") {
             const errorText = payload.content || "The chat request failed.";
@@ -362,7 +366,7 @@ export function useChat() {
         }
       }
 
-      if (!didCompleteTurn && !(didBlockForApproval && didReceiveDone)) {
+      if (!didReloadConversation) {
         await reloadConversation(conversationId);
       }
 
