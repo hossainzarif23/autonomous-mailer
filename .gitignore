@@ -14,3 +14,8 @@ frontend/.next/
 dist/
 build/
 .codegraph/
+.worktrees/
+# worktree-bootstrap scratch files
+.wt-bootstrap-*.log
+.wt-smoke-*.log
+.wt-db-check.*
