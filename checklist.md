@@ -22,16 +22,24 @@ Goal: keep each Codex session short, focused, and verifiable. One session should
   - `get_coordinator_agent`
   - `make_coordinator_tools`
 - [ ] Add current tests for `send_email` behavior in `backend/app/agents/tools/draft_tools.py`.
-- [ ] Verify: `cd backend; .\venv\Scripts\python.exe -m unittest discover -s tests`
+- [ ] Add `pytest`, `pytest-asyncio`, `httpx` to `backend/requirements.txt`.
+- [ ] Add `backend/pytest.ini` (testpaths=tests, asyncio_mode=auto) and `backend/conftest.py`.
+- [ ] Migrate existing tests off `unittest` → pytest:
+  - Drop `TestCase`/`IsolatedAsyncioTestCase` base classes; use plain functions.
+  - Replace `self.assert*` with plain `assert`.
+  - Mark async tests with `@pytest.mark.asyncio`.
+  - Replace `unittest.mock.patch` context managers with pytest fixtures or `monkeypatch` where idiomatic.
+  - Files: `test_auth_service.py`, `test_email_parser.py`, `test_llm.py`, `test_gmail_service.py`, `test_agent_factories.py`, `test_agent_tools.py`, `test_chat_stream_contract.py`.
+- [ ] Verify: `cd backend; .\venv\Scripts\python.exe -m pytest tests`
 - [ ] Verify: `cd backend; .\venv\Scripts\python.exe -m compileall app`
 
 ## 2. Backend Integration Test Harness
 
-- [ ] Choose integration test approach: `unittest` + `httpx.AsyncClient` against FastAPI ASGI app.
+- [ ] Choose integration test approach: `pytest` + `httpx.AsyncClient` + `pytest-asyncio` against FastAPI ASGI app.
 - [ ] Add test DB configuration that does not touch dev/prod data.
 - [ ] Add dependency overrides for auth user and DB session.
 - [ ] Add lifecycle handling for FastAPI startup/shutdown or isolated app construction.
-- [ ] Add fixture/helper for seeded users, conversations, drafts, and notifications.
+- [ ] Add pytest fixtures for seeded users, conversations, drafts, and notifications.
 - [ ] Verify harness with one minimal `/health` or authenticated route test.
 
 ## 3. Backend Auth And Router Integration Tests
@@ -116,6 +124,8 @@ Goal: keep each Codex session short, focused, and verifiable. One session should
 - [ ] Add CI job for frontend lint + build + tests.
 - [ ] Document local test DB setup.
 - [ ] Update `README.md`, `backend/AGENTS.md`, and `frontend/AGENTS.md` after tooling changes.
+- [ ] Flip `backend/AGENTS.md` unittest references to pytest: remove "pytest NOT installed" / "Do not assume pytest" claims; update test command to `python -m pytest tests`.
+- [ ] Update root `AGENTS.md` test commands (currently `python -m unittest discover -s tests`) to `python -m pytest tests`.
 
 ## Suggested Order
 
