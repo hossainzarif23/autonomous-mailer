@@ -197,7 +197,7 @@ python -m venv venv
 pip install -r requirements.txt
 Copy-Item .env.example .env
 alembic upgrade head
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --loop app.uvicorn_loop:selector_loop_factory
+python -m app.dev_server
 ```
 
 ### Frontend Setup
