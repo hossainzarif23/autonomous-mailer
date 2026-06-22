@@ -13,6 +13,105 @@ function buildStatusBlock(label: string, tone: "neutral" | "pending" | "success"
   return { type: "status", label, tone, detail };
 }
 
+function buildToolActionBlock(
+  label: string,
+  state: "running" | "complete" | "waiting" | "error",
+  detail?: string,
+  toolCallId?: string
+): ChatContentBlock {
+  return { type: "tool_action", label, state, detail, tool_call_id: toolCallId };
+}
+
+function upsertMarkdownBlock(blocks: ChatContentBlock[], content: string): ChatContentBlock[] {
+  const markdownBlock = buildMarkdownBlock(content);
+  const markdownIndex = blocks.findIndex((block) => block.type === "markdown");
+
+  if (markdownIndex >= 0) {
+    return blocks.map((block, index) => (index === markdownIndex ? markdownBlock : block));
+  }
+
+  if (!content) {
+    return blocks;
+  }
+
+  return [...blocks, markdownBlock];
+}
+
+function upsertToolActionBlock(
+  blocks: ChatContentBlock[],
+  label: string,
+  state: "running" | "complete" | "waiting" | "error",
+  detail?: string,
+  toolCallId?: string
+): ChatContentBlock[] {
+  const toolBlock = buildToolActionBlock(label, state, detail, toolCallId);
+  const toolIndex = blocks.findIndex((block) => {
+    if (block.type !== "tool_action") {
+      return false;
+    }
+
+    if (toolCallId && block.tool_call_id) {
+      return block.tool_call_id === toolCallId;
+    }
+
+    return block.label === label;
+  });
+
+  if (toolIndex >= 0) {
+    return blocks.map((block, index) => (index === toolIndex ? toolBlock : block));
+  }
+
+  const markdownIndex = blocks.findIndex((block) => block.type === "markdown");
+  if (markdownIndex >= 0) {
+    return [...blocks.slice(0, markdownIndex), toolBlock, ...blocks.slice(markdownIndex)];
+  }
+
+  return [...blocks, toolBlock];
+}
+
+function mergeStreamingBlocks(
+  currentBlocks: ChatContentBlock[] | null | undefined,
+  options: {
+    statusDetail: string;
+    markdownContent: string;
+    toolAction?: {
+      label: string;
+      state: "running" | "complete" | "waiting" | "error";
+      detail?: string;
+      toolCallId?: string;
+    };
+  }
+): ChatContentBlock[] {
+  const preservedBlocks = (currentBlocks ?? []).filter((block) => block.type !== "status");
+  const toolMergedBlocks = options.toolAction
+    ? upsertToolActionBlock(
+        preservedBlocks,
+        options.toolAction.label,
+        options.toolAction.state,
+        options.toolAction.detail,
+        options.toolAction.toolCallId
+      )
+    : preservedBlocks;
+  const contentMergedBlocks = upsertMarkdownBlock(toolMergedBlocks, options.markdownContent);
+
+  return [buildStatusBlock("Working", "pending", options.statusDetail), ...contentMergedBlocks];
+}
+
+function mergeApprovalBlocks(
+  currentBlocks: ChatContentBlock[] | null | undefined,
+  fallbackMarkdown: string
+): ChatContentBlock[] {
+  const preservedBlocks = (currentBlocks ?? []).filter((block) => block.type !== "status");
+  const hasMarkdownBlock = preservedBlocks.some((block) => block.type === "markdown");
+  const mergedBlocks = hasMarkdownBlock || !fallbackMarkdown ? preservedBlocks : [...preservedBlocks, buildMarkdownBlock(fallbackMarkdown)];
+
+  if (mergedBlocks.length > 0) {
+    return [buildStatusBlock("Waiting for approval", "pending", fallbackMarkdown), ...mergedBlocks];
+  }
+
+  return [buildStatusBlock("Waiting for approval", "pending", fallbackMarkdown), buildMarkdownBlock(fallbackMarkdown)];
+}
+
 export function useChat() {
   const {
     activeConversationId,
@@ -153,7 +252,8 @@ export function useChat() {
       const decoder = new TextDecoder();
       let buffer = "";
       let assistantContent = "";
-      let didCompleteTurn = false;
+      let didReloadConversation = false;
+      let didBlockForApproval = false;
 
       while (true) {
         const { value, done } = await reader.read();
@@ -182,31 +282,75 @@ export function useChat() {
             });
           } else if (payload.type === "token" && payload.content) {
             assistantContent += payload.content;
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
             updateMessage(assistantId, {
               content: assistantContent,
               status: "streaming",
-              content_blocks: [
-                buildStatusBlock("Working", "pending", "The agent is preparing the response."),
-                buildMarkdownBlock(assistantContent)
-              ]
+              content_blocks: mergeStreamingBlocks(currentAssistantMessage?.content_blocks, {
+                statusDetail: "The agent is preparing the response.",
+                markdownContent: assistantContent
+              })
             });
-          } else if (payload.type === "approval_pending") {
+          } else if (payload.type === "action_started" || payload.type === "action_completed") {
+            const toolLabel = payload.label ?? payload.tool ?? "Action";
+            const toolState = payload.type === "action_completed" ? "complete" : "running";
+            const safeDetail = payload.content?.trim() || undefined;
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
             updateMessage(assistantId, {
-              status: "waiting_approval",
               content: assistantContent,
-              content_blocks: [
-                buildStatusBlock("Waiting for approval", "pending", "A draft is ready and requires human review."),
-                ...(assistantContent ? [buildMarkdownBlock(assistantContent)] : [])
-              ],
+              status: "streaming",
+              content_blocks: mergeStreamingBlocks(currentAssistantMessage?.content_blocks, {
+                statusDetail: safeDetail ?? "The agent is using a tool.",
+                markdownContent: assistantContent,
+                toolAction: {
+                  label: toolLabel,
+                  state: toolState,
+                  detail: safeDetail,
+                  toolCallId: payload.tool_call_id
+                }
+              })
+            });
+          } else if (payload.type === "approval_blocked") {
+            const blockedMessage = payload.content || "Review the pending draft before sending another message in this conversation.";
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
+            didBlockForApproval = true;
+            updateMessage(assistantId, {
+              content: assistantContent || blockedMessage,
+              status: "waiting_approval",
+              content_blocks: mergeApprovalBlocks(currentAssistantMessage?.content_blocks, assistantContent || blockedMessage),
               metadata: {
                 draft_id: payload.draft_id,
                 is_waiting_approval: true
               }
             });
-            await reloadConversation(conversationId);
+            toast({
+              title: "Approval Required",
+              description: blockedMessage
+            });
+          } else if (payload.type === "approval_pending") {
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
+            updateMessage(assistantId, {
+              status: "waiting_approval",
+              content: assistantContent,
+              content_blocks: mergeApprovalBlocks(
+                currentAssistantMessage?.content_blocks,
+                assistantContent || "A draft is ready and requires human review."
+              ),
+              metadata: {
+                draft_id: payload.draft_id,
+                is_waiting_approval: true
+              }
+            });
           } else if (payload.type === "turn_completed" || payload.type === "done") {
-            didCompleteTurn = true;
-            await reloadConversation(conversationId);
+            if (payload.type === "done") {
+              if (!didReloadConversation) {
+                await reloadConversation(conversationId);
+                didReloadConversation = true;
+              }
+            } else if (!didBlockForApproval && !didReloadConversation) {
+              await reloadConversation(conversationId);
+              didReloadConversation = true;
+            }
           } else if (payload.type === "error") {
             const errorText = payload.content || "The chat request failed.";
             updateMessage(assistantId, {
@@ -222,7 +366,7 @@ export function useChat() {
         }
       }
 
-      if (!didCompleteTurn) {
+      if (!didReloadConversation) {
         await reloadConversation(conversationId);
       }
 

@@ -64,6 +64,47 @@ def _sse(data: dict[str, Any]) -> str:
     return f"data: {json.dumps(data)}\n\n"
 
 
+def _approval_blocked_event(*, draft_id: str, conversation_id: str, turn_id: str) -> dict[str, Any]:
+    return {
+        "type": "approval_blocked",
+        "draft_id": draft_id,
+        "conversation_id": conversation_id,
+        "turn_id": turn_id,
+        "content": "Review the pending draft before sending another message in this conversation.",
+    }
+
+
+def _blocked_approval_events(*, draft_id: str, conversation_id: str, turn_id: str) -> list[dict[str, Any]]:
+    return [
+        _approval_blocked_event(draft_id=draft_id, conversation_id=conversation_id, turn_id=turn_id),
+        {"type": "done", "turn_id": turn_id},
+    ]
+
+
+async def _pending_approval_blocked_stream_events(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    conversation_id: str,
+    turn_id: str,
+) -> list[str] | None:
+    pending_draft = await _get_pending_approval_draft(
+        db,
+        user_id=user_id,
+        conversation_id=conversation_id,
+    )
+    if pending_draft is None:
+        return None
+    return [
+        _sse(event)
+        for event in _blocked_approval_events(
+            draft_id=str(pending_draft.id),
+            conversation_id=conversation_id,
+            turn_id=turn_id,
+        )
+    ]
+
+
 def _markdown_block(content: str) -> dict[str, Any]:
     return {"type": "markdown", "content": content}
 
@@ -268,6 +309,89 @@ def _label_for_tool(name: str) -> str:
     return labels.get(name, name.replace("_", " ").title())
 
 
+def _looks_like_json_payload(content: str) -> bool:
+    stripped = content.strip()
+    if not stripped:
+        return False
+    if not (
+        (stripped.startswith("{") and stripped.endswith("}"))
+        or (stripped.startswith("[") and stripped.endswith("]"))
+    ):
+        return False
+    try:
+        json.loads(stripped)
+    except json.JSONDecodeError:
+        return False
+    return True
+
+
+def _safe_token_content(chunk: Any) -> str | None:
+    if getattr(chunk, "tool_calls", None):
+        return None
+    content = _message_text(getattr(chunk, "content", "")).strip()
+    if not content:
+        return None
+    if _looks_like_json_payload(content):
+        return None
+    return content
+
+
+def _tool_call_details(chunk: Any) -> list[tuple[str, str | None]]:
+    tool_calls: list[tuple[str, str | None]] = []
+    for tool_call in getattr(chunk, "tool_calls", None) or []:
+        if isinstance(tool_call, dict):
+            name = tool_call.get("name")
+            tool_call_id = tool_call.get("id")
+        else:
+            name = getattr(tool_call, "name", None)
+            tool_call_id = getattr(tool_call, "id", None)
+        if name:
+            tool_calls.append((str(name), str(tool_call_id) if tool_call_id else None))
+    return tool_calls
+
+
+def _tool_call_detail(tool_call: Any, *, turn_id: str, occurrence_index: int) -> tuple[str, str]:
+    if isinstance(tool_call, dict):
+        name = tool_call.get("name")
+        tool_call_id = tool_call.get("id")
+    else:
+        name = getattr(tool_call, "name", None)
+        tool_call_id = getattr(tool_call, "id", None)
+
+    tool_name = str(name or "tool")
+    if tool_call_id:
+        return tool_name, str(tool_call_id)
+    return tool_name, f"generated:{turn_id}:{occurrence_index}"
+
+
+def _tool_call_names(chunk: Any) -> list[str]:
+    return [name for name, _tool_call_id in _tool_call_details(chunk)]
+
+
+def _action_started_event(tool_name: str, *, turn_id: str, tool_call_id: str | None = None) -> dict[str, Any]:
+    event = {
+        "type": "action_started",
+        "tool": tool_name,
+        "label": _label_for_tool(tool_name),
+        "turn_id": turn_id,
+    }
+    if tool_call_id is not None:
+        event["tool_call_id"] = tool_call_id
+    return event
+
+
+def _action_completed_event(tool_name: str, *, turn_id: str, tool_call_id: str | None = None) -> dict[str, Any]:
+    event = {
+        "type": "action_completed",
+        "tool": tool_name,
+        "label": _label_for_tool(tool_name),
+        "turn_id": turn_id,
+    }
+    if tool_call_id is not None:
+        event["tool_call_id"] = tool_call_id
+    return event
+
+
 def _apply_tool_message_to_turn(turn: dict[str, Any], message: ToolMessage):
     blocks: list[dict[str, Any]] = turn["content_blocks"]
     name = message.name or "tool"
@@ -387,6 +511,25 @@ def _serialize_history(messages: list[BaseMessage], drafts: list[EmailDraft]) ->
     return serialized
 
 
+async def _get_pending_approval_draft(
+    db: AsyncSession,
+    *,
+    user_id: uuid.UUID,
+    conversation_id: str,
+) -> EmailDraft | None:
+    result = await db.scalars(
+        select(EmailDraft)
+        .where(
+            EmailDraft.user_id == user_id,
+            EmailDraft.conversation_id == uuid.UUID(conversation_id),
+            EmailDraft.status == "pending_approval",
+        )
+        .order_by(desc(EmailDraft.created_at))
+        .limit(1)
+    )
+    return result.first()
+
+
 async def _get_owned_conversation(db: AsyncSession, conversation_id: str, user_id: uuid.UUID) -> Conversation:
     conversation = await db.get(Conversation, uuid.UUID(conversation_id))
     if conversation is None or conversation.user_id != user_id:
@@ -452,15 +595,28 @@ async def stream_chat_message(
 ):
     conversation = await _get_owned_conversation(db, payload.conversation_id, current_user.id)
 
-    if conversation.title is None:
-        conversation.title = payload.message.strip()[:80] or "New conversation"
-    conversation.updated_at = datetime.now(UTC)
-    await db.commit()
-
     async def event_stream():
         turn_id = str(uuid.uuid4())
+        seen_started_tool_call_ids: set[str] = set()
+        seen_completed_tool_call_ids: set[str] = set()
+        pending_idless_tool_call_ids_by_name: dict[str, list[str]] = {}
+        generated_tool_call_index = 0
         yield _sse({"type": "turn_started", "turn_id": turn_id})
         try:
+            blocked_events = await _pending_approval_blocked_stream_events(
+                db,
+                user_id=current_user.id,
+                conversation_id=payload.conversation_id,
+                turn_id=turn_id,
+            )
+            if blocked_events is not None:
+                for event in blocked_events:
+                    yield event
+                return
+            if conversation.title is None:
+                conversation.title = payload.message.strip()[:80] or "New conversation"
+            conversation.updated_at = datetime.now(UTC)
+            await db.commit()
             access_token = await get_valid_access_token(str(current_user.id), db)
             context = AgentContext(
                 user_id=str(current_user.id),
@@ -481,11 +637,62 @@ async def stream_chat_message(
             ):
                 if part["type"] == "messages":
                     chunk, _metadata = part["data"]
-                    text = _message_text(chunk.content)
+                    tool_calls = getattr(chunk, "tool_calls", None) or []
+                    if tool_calls:
+                        for tool_call in tool_calls:
+                            if isinstance(tool_call, dict):
+                                raw_tool_call_id = tool_call.get("id")
+                            else:
+                                raw_tool_call_id = getattr(tool_call, "id", None)
+                            tool_name, tool_call_id = _tool_call_detail(
+                                tool_call,
+                                turn_id=turn_id,
+                                occurrence_index=generated_tool_call_index + 1,
+                            )
+                            if not raw_tool_call_id:
+                                generated_tool_call_index += 1
+                                pending_idless_tool_call_ids_by_name.setdefault(tool_name, []).append(tool_call_id)
+                            else:
+                                if tool_call_id in seen_started_tool_call_ids:
+                                    continue
+                                seen_started_tool_call_ids.add(tool_call_id)
+                            yield _sse(
+                                _action_started_event(
+                                    tool_name,
+                                    turn_id=turn_id,
+                                    tool_call_id=tool_call_id,
+                                )
+                            )
+                        continue
+                    text = _safe_token_content(chunk)
                     if text:
                         yield _sse({"type": "token", "content": text, "turn_id": turn_id})
                 elif part["type"] == "updates":
                     updates = part["data"]
+                    for node_update in updates.values():
+                        if not isinstance(node_update, dict):
+                            continue
+                        for message in node_update.get("messages", []):
+                            if isinstance(message, ToolMessage) and message.name:
+                                tool_call_id = getattr(message, "tool_call_id", None)
+                                if not tool_call_id:
+                                    pending_ids = pending_idless_tool_call_ids_by_name.get(message.name)
+                                    if pending_ids:
+                                        tool_call_id = pending_ids.pop(0)
+                                    else:
+                                        generated_tool_call_index += 1
+                                        tool_call_id = f"generated:{turn_id}:{generated_tool_call_index}"
+                                else:
+                                    if tool_call_id in seen_completed_tool_call_ids:
+                                        continue
+                                    seen_completed_tool_call_ids.add(tool_call_id)
+                                yield _sse(
+                                    _action_completed_event(
+                                        message.name,
+                                        turn_id=turn_id,
+                                        tool_call_id=tool_call_id,
+                                    )
+                                )
                     interrupts = updates.get("__interrupt__", ())
                     for interrupt in interrupts:
                         interrupt_value = getattr(interrupt, "value", interrupt)

@@ -16,7 +16,7 @@ For full product context, read [README.md](./README.md). For the phased build pl
 ## Commands
 This is a split-stack monorepo with no shared package manager. Run commands inside each package directory.
 
-- **Backend** (`backend/`): install `pip install -r requirements.txt`; dev `uvicorn app.main:app --reload`; migrations `alembic upgrade head`; tests `python -m unittest discover -s tests`; compile check `python -m compileall app`
+- **Backend** (`backend/`): install `pip install -r requirements.txt`; dev `uvicorn app.main:app --reload --loop app.uvicorn_loop:selector_loop_factory`; migrations `alembic upgrade head`; tests `python -m unittest discover -s tests`; compile check `python -m compileall app`
 - **Frontend** (`frontend/`): install `npm install`; dev `npm run dev`; build `npm run build`; lint `npm run lint`
 
 See each package's AGENTS.md for full details and exact invocations.
