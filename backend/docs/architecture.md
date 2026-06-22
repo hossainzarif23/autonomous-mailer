@@ -236,7 +236,7 @@ This makes the backend the source of truth for the semantic shape of assistant t
 The code assumes a single FastAPI process with:
 
 - Python 3.11+.
-- `uvicorn app.main:app --loop app.uvicorn_loop:selector_loop_factory`.
+- `python -m app.dev_server` for local development. This wrapper starts `uvicorn` with `app.uvicorn_loop:selector_loop_factory`, which avoids the Windows `ProactorEventLoop` incompatibility in psycopg async pools.
 - Postgres reachable through two DSNs:
   - `DATABASE_URL` for async SQLAlchemy/asyncpg.
   - `DATABASE_URL_PSYCOPG` for Alembic and LangGraph/psycopg.

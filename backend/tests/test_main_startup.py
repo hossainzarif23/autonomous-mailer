@@ -4,6 +4,7 @@ import asyncio
 import importlib
 import sys
 from unittest import TestCase
+from unittest.mock import patch
 
 
 class StartupEventLoopTests(TestCase):
@@ -30,4 +31,18 @@ class StartupEventLoopTests(TestCase):
         self.assertIsInstance(
             asyncio.get_event_loop_policy(),
             asyncio.WindowsSelectorEventLoopPolicy,
+        )
+
+    def test_dev_server_runs_uvicorn_with_selector_loop(self):
+        from app import dev_server
+
+        with patch("uvicorn.run") as run:
+            dev_server.main()
+
+        run.assert_called_once_with(
+            "app.main:app",
+            host="0.0.0.0",
+            port=8000,
+            reload=True,
+            loop="app.uvicorn_loop:selector_loop_factory",
         )
