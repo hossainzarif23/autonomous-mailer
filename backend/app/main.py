@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 from contextlib import asynccontextmanager
 import logging
+import sys
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
@@ -16,6 +18,17 @@ from app.models import Base
 from app.routers import approve, auth, chat, emails, notifications
 
 logger = logging.getLogger(__name__)
+
+
+def _configure_windows_event_loop_policy() -> None:
+    if sys.platform == "win32" and not isinstance(
+        asyncio.get_event_loop_policy(),
+        asyncio.WindowsSelectorEventLoopPolicy,
+    ):
+        asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+
+_configure_windows_event_loop_policy()
 
 
 @asynccontextmanager

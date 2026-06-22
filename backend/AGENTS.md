@@ -17,7 +17,7 @@ python -m venv venv
 pip install -r requirements.txt
 Copy-Item .env.example .env          # then fill in real values (see docs/environment.md)
 alembic upgrade head                 # requires DATABASE_URL_PSYCOPG
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000 --loop app.uvicorn_loop:selector_loop_factory
 ```
 
 Verification:
