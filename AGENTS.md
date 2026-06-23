@@ -42,17 +42,18 @@ Use the original superpowers workflow for this development. Superpowers is a met
 Follow this sequence for feature work:
 
 1. **Brainstorm before code.** Use `brainstorming` when the request is still a rough idea or design problem. Ask targeted questions, explore alternatives, present the design in readable sections, and get human approval before implementation planning and then create a separate branch.
-2. **Write the implementation plan from the approved design.** Use `writing-plans`. Save the plan under `docs/superpowers/plans/`. The plan must break work into 2-5 minute tasks with exact files, concrete code or command snippets, and verification steps. Get human approval before executing the implementation plan.
-3. **Execute the written plan with subagents.** Always use `subagent-driven-development` to execute implementation plans: dispatch a fresh subagent per task, then perform the required two-stage review for spec compliance and code quality. Do not silently fall back to inline execution.
+2. **Create an isolated workspace after design approval.** Use `worktree-bootstrap` together with `using-git-worktrees` before implementation work. Verify that the worktree is correctly set up before moving to the next phase.
+3. **Write the implementation plan from the approved design.** Use `writing-plans`. Save the plan under `docs/superpowers/plans/`. The plan must break work into 2-5 minute tasks with exact files, concrete code or command snippets, and verification steps. Get human approval before executing the implementation plan.
+4. **Execute the written plan with subagents.** Always use `subagent-driven-development` to execute implementation plans: dispatch a fresh subagent per task, then perform the required two-stage review for spec compliance and code quality. Do not silently fall back to inline execution.
 
    If subagents cannot be created or used, stop before implementation and report the exact blocker, such as missing subagent tooling, unavailable plugin/runtime support, failed subagent creation, or permission/configuration limits. Explain why that prevents following `subagent-driven-development`, then ask whether to proceed with `executing-plans` as an explicit fallback. Only use `executing-plans` after the user approves that fallback.
 
    Development subagent model policy for this work: use GPT-5.4-mini with medium reasoning for all subagents.
 
    After each subagent returns its final report, integrate only the necessary findings into the main thread and close the completed subagent thread immediately.
-4. **Use TDD during implementation.** Use `test-driven-development` for behavior changes: write the failing test, see it fail, write the minimum implementation, see it pass, refactor, and commit. If production code was written before the test, delete or revert it and restart the red/green cycle.
-5. **Review between tasks.** Under `subagent-driven-development`, every task must pass spec-compliance review before code-quality review. Open review issues block progress until fixed. Use `requesting-code-review` only when an additional human-facing or external review is needed.
-6. **Finish the branch deliberately.** Use `finishing-a-development-branch` when planned tasks are complete. Run fresh verification, then present the options to merge, open a PR, keep the branch, or discard the worktree.
+5. **Use TDD during implementation.** Use `test-driven-development` for behavior changes: write the failing test, see it fail, write the minimum implementation, see it pass, refactor, and commit. If production code was written before the test, delete or revert it and restart the red/green cycle.
+6. **Review between tasks.** Under `subagent-driven-development`, every task must pass spec-compliance review before code-quality review. Open review issues block progress until fixed. Use `requesting-code-review` only when an additional human-facing or external review is needed.
+7. **Finish the branch deliberately.** Use `finishing-a-development-branch` when planned tasks are complete. Run fresh verification, then present the options to merge, open a PR, keep the branch, or discard the worktree.
 
 Use `systematic-debugging` for bugs and failing tests. Use `verification-before-completion` before any claim that work is complete, fixed, passing, or ready for PR. Evidence comes before status claims.
 
