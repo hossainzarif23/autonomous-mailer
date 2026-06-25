@@ -234,11 +234,6 @@ export function useChat() {
   }
 
   function createConversation(): Promise<string> {
-    const currentActive = useChatStore.getState().activeConversationId;
-    if (currentActive && !currentActive.startsWith("temp-")) {
-      return Promise.resolve(currentActive);
-    }
-
     if (createConversationPromiseRef.current) {
       return createConversationPromiseRef.current;
     }
