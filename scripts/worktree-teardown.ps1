@@ -1,12 +1,13 @@
 # Tear down a worktree session. Removes the worktree, deletes the local branch.
 # Refuses if there are uncommitted changes or the branch is unmerged, unless -Force is passed.
 #
-# Usage: .\scripts\worktree-teardown.ps1 <branch> [-Force] [-DryRun] [-Help]
+# Usage: .\scripts\worktree-teardown.ps1 <branch> [-Force] [-StopServers] [-DryRun] [-Help]
 
 [CmdletBinding()]
 param(
     [Parameter(Position=0)] [string]$Branch,
     [switch]$Force,
+    [switch]$StopServers,
     [switch]$DryRun,
     [switch]$Help
 )
@@ -16,7 +17,7 @@ if ($Help -or ($args -contains '-h' -or $args -contains '--help')) {
     Get-Content $PSCommandPath | Select-Object -First 5 | ForEach-Object { Write-Host $_ }
     exit 0
 }
-if (-not $Branch) { Err "usage: $($MyInvocation.MyCommand.Name) <branch> [-Force] [-DryRun] [-Help]" }
+if (-not $Branch) { Err "usage: $($MyInvocation.MyCommand.Name) <branch> [-Force] [-StopServers] [-DryRun] [-Help]" }
 
 $ErrorActionPreference = 'Stop'
 
@@ -34,6 +35,16 @@ function Invoke-Step([string]$Description, [scriptblock]$Action) {
 function Test-GitRef([string]$Ref) {
     git show-ref --verify --quiet $Ref | Out-Null
     return ($LASTEXITCODE -eq 0)
+}
+
+function Normalize-ExistingPath([string]$Path) {
+    return (Resolve-Path -LiteralPath $Path).ProviderPath.TrimEnd([char[]]@('\', '/'))
+}
+
+function Test-PathInside([string]$Child, [string]$Parent) {
+    $childNorm = (Normalize-ExistingPath $Child).Replace('\', '/').TrimEnd('/').ToLowerInvariant()
+    $parentNorm = (Normalize-ExistingPath $Parent).Replace('\', '/').TrimEnd('/').ToLowerInvariant()
+    return $childNorm.StartsWith("$parentNorm/")
 }
 
 if ($env:WT_REPO_ROOT) { $RepoRoot = $env:WT_REPO_ROOT }
@@ -63,6 +74,7 @@ if (-not $DefaultBranch) {
     elseif (Test-GitRef 'refs/heads/master') { $DefaultBranch = 'master' }
     else { $DefaultBranch = (git rev-parse --abbrev-ref HEAD) }
 }
+if ($Branch -eq $DefaultBranch) { Err "refusing to tear down default branch $DefaultBranch" }
 
 # ---------- find worktree path ----------
 $WtPath = $null
@@ -77,6 +89,16 @@ for ($i = 0; $i -lt $lines.Count; $i++) {
 }
 if (-not $WtPath) { Err "no worktree found for branch $Branch" }
 Log "worktree: $WtPath"
+
+$WorktreesRoot = Join-Path $RepoRoot '.worktrees'
+if (-not (Test-Path $WorktreesRoot)) { Err "expected worktree root does not exist: $WorktreesRoot" }
+if (-not (Test-Path $WtPath)) { Err "registered worktree path is missing on disk: $WtPath; inspect with git worktree list --porcelain" }
+if ((Normalize-ExistingPath $WtPath) -eq (Normalize-ExistingPath $RepoRoot)) {
+    Err "refusing to remove the primary worktree: $WtPath"
+}
+if (-not (Test-PathInside $WtPath $WorktreesRoot)) {
+    Err "refusing to remove $WtPath because it is outside $WorktreesRoot"
+}
 
 # ---------- safety: uncommitted changes ----------
 if (Test-Path $WtPath) {
@@ -116,15 +138,33 @@ if (-not $Force) {
     }
 }
 
-# ---------- try to stop dev server on assigned ports (F5) ----------
+# ---------- optionally stop dev server on assigned ports ----------
+function Test-ProcessBelongsToWorktree([int]$ProcessId, [string]$WorktreePath) {
+    try {
+        $proc = Get-CimInstance Win32_Process -Filter "ProcessId=$ProcessId" -ErrorAction Stop
+        $needle = (Normalize-ExistingPath $WorktreePath).Replace('\', '/').ToLowerInvariant()
+        $rawCommandLine = if ($proc.CommandLine) { $proc.CommandLine } else { '' }
+        $rawExecutable = if ($proc.ExecutablePath) { $proc.ExecutablePath } else { '' }
+        $commandLine = ($rawCommandLine -replace '\\', '/').ToLowerInvariant()
+        $executable = ($rawExecutable -replace '\\', '/').ToLowerInvariant()
+        return $commandLine.Contains($needle) -or $executable.StartsWith($needle)
+    } catch {
+        return $false
+    }
+}
+
 function Stop-Port([int]$port) {
     try {
         $conns = Get-NetTCPConnection -LocalPort $port -State Listen -ErrorAction Stop
         if ($conns) {
             $pids = $conns | Select-Object -ExpandProperty OwningProcess -Unique
             foreach ($pid in $pids) {
-                Log "stopping process on port $port (PID $pid)"
-                Invoke-Step "Stop-Process -Id $pid -Force" { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+                if (Test-ProcessBelongsToWorktree ([int]$pid) $WtPath) {
+                    Log "stopping worktree process on port $port (PID $pid)"
+                    Invoke-Step "Stop-Process -Id $pid -Force" { Stop-Process -Id $pid -Force -ErrorAction SilentlyContinue }
+                } else {
+                    Warn "leaving PID $pid on port $port running; command does not prove it belongs to $WtPath"
+                }
             }
         }
     } catch {
@@ -132,7 +172,9 @@ function Stop-Port([int]$port) {
     }
 }
 
-if (Test-Path $WtPath) {
+if (-not $StopServers) {
+    Warn "not stopping dev servers by default; pass -StopServers to stop only processes that can be tied to this worktree"
+} elseif (Test-Path $WtPath) {
     foreach ($envfile in @('backend\.env', 'frontend\.env.local')) {
         $full = Join-Path $WtPath $envfile
         if (-not (Test-Path $full)) { continue }
@@ -146,25 +188,24 @@ if (Test-Path $WtPath) {
 
 # ---------- remove worktree ----------
 Log "removing worktree"
-$removed = $false
-if (-not $DryRun) {
-    try {
-        git worktree remove --force $WtPath 2>&1 | Out-Null
-        $removed = ($LASTEXITCODE -eq 0)
-    } catch {}
+if ($DryRun) {
+    $removeMode = if ($Force) { "--force " } else { "" }
+    Write-Host "  [dry-run] git worktree remove ${removeMode}$WtPath"
+} else {
+    if ($Force) { git worktree remove --force $WtPath | Out-Null }
+    else { git worktree remove $WtPath | Out-Null }
+    if ($LASTEXITCODE -ne 0) { Err "git worktree remove failed; refusing manual directory deletion" }
 }
-if (-not $DryRun -and -not $removed) {
-    Warn "git worktree remove failed; removing dir manually"
-    Remove-Item -Recurse -Force $WtPath
-    git worktree prune | Out-Null
-}
-if ($DryRun) { Write-Host "  [dry-run] git worktree remove --force $WtPath" }
 
 # ---------- delete branch ----------
 $branchExists = Test-GitRef "refs/heads/$Branch"
 if ($branchExists) {
     Log "deleting branch $Branch"
-    Invoke-Step "git branch -D $Branch" { git branch -D $Branch | Out-Null }
+    if ($Force) {
+        Invoke-Step "git branch -D $Branch" { git branch -D $Branch | Out-Null }
+    } else {
+        Invoke-Step "git branch -d $Branch" { git branch -d $Branch | Out-Null }
+    }
 } else {
     Log "branch $Branch already gone"
 }

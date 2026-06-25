@@ -36,7 +36,7 @@ class StartupEventLoopTests(TestCase):
     def test_dev_server_runs_uvicorn_with_selector_loop(self):
         from app import dev_server
 
-        with patch("uvicorn.run") as run:
+        with patch.dict("os.environ", {}, clear=True), patch("uvicorn.run") as run:
             dev_server.main()
 
         run.assert_called_once_with(
@@ -46,3 +46,13 @@ class StartupEventLoopTests(TestCase):
             reload=True,
             loop="app.uvicorn_loop:selector_loop_factory",
         )
+
+    def test_dev_server_uses_api_port_env_override(self):
+        from app import dev_server
+
+        with patch.dict("os.environ", {"API_PORT": "8042"}, clear=True), patch(
+            "uvicorn.run"
+        ) as run:
+            dev_server.main()
+
+        self.assertEqual(run.call_args.kwargs["port"], 8042)

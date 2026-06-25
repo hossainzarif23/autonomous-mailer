@@ -9,6 +9,7 @@ Copy [`../.env.example`](../.env.example) to `backend/.env` and fill in real val
 |---|---|---|
 | `APP_ENV` | `development` toggles SQLAlchemy `echo=True` and non-secure cookie | |
 | `APP_URL` | passed to `ChatOpenRouter` as `app_url` | |
+| `API_PORT` | local dev server port used by `python -m app.dev_server` | defaults to `8000` |
 | `SECRET_KEY` | JWT signing + Starlette `SessionMiddleware` secret | |
 | `JWT_ALGORITHM` | JWT algorithm | `HS256` |
 | `JWT_EXPIRY_HOURS` | JWT lifetime | `24` |

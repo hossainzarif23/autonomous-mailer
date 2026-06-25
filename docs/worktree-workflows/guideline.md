@@ -1,144 +1,138 @@
 # Parallel Worktree Workflow
 
-Run multiple coding sessions on this repo without trampling each other. One worktree per session, isolated working dir, shared infrastructure where it is safe.
+Run multiple coding sessions on this repo without trampling each other. One session means one registered git worktree under `.worktrees/`, with isolated source files, env files, frontend dependencies, dev-server ports, and CodeGraph index.
 
-## When to use
+This repo's `worktree-bootstrap` skill complements `superpowers:using-git-worktrees`: use the Superpowers skill for isolation policy, then use these scripts for this project's concrete setup and teardown.
 
-- Starting a new feature/fix session that should not touch `main` directly.
-- Running two agents in parallel on different branches.
-- Handing a branch off to another session (yours or another agent).
-
-If you are doing a quick throwaway edit on `main`, do not bother — just work in the main worktree.
-
-## TL;DR
+## Bootstrap
 
 ```bash
-# bootstrap a new session worktree
 ./scripts/worktree-bootstrap.sh feat/my-branch
-
-# later, when PR is merged
-./scripts/worktree-teardown.sh feat/my-branch --force
 ```
 
-PowerShell equivalents: `.\scripts\worktree-bootstrap.ps1 feat/my-branch` and `.\scripts\worktree-teardown.ps1 feat/my-branch --force`.
+PowerShell:
 
-## Core principle
+```powershell
+.\scripts\worktree-bootstrap.ps1 feat/my-branch
+```
 
-Each session = one git worktree = one isolated working dir. The worktree owns its source files, its `node_modules` / `venv`, its build artifacts, and its dev server ports. The repo itself (`.git/`, the working tree) is shared only at the git level — file system state inside the worktree is fully isolated.
+The bootstrap script:
 
-## Step-by-step: bootstrap
+- verifies `.worktrees/` is ignored when using the default location.
+- creates or reuses `.worktrees/<branch-slug>/`.
+- branches from `origin/<default-branch>` when available.
+- copies `backend/.env` and `frontend/.env.local` from the main worktree, falling back to `backend/.env.example` and `frontend/.env.local.example`.
+- assigns stable hash-based backend/frontend ports.
+- patches backend env: `API_PORT`, `APP_URL`, `GOOGLE_REDIRECT_URI`, `FRONTEND_URL`.
+- patches frontend env: `PORT`, `NEXT_PUBLIC_API_URL`.
+- links `backend/venv` to the main worktree's venv when available, or creates a fresh venv.
+- runs `npm install` in `frontend/`.
+- removes stale inherited `.codegraph/` and runs `codegraph init` unless `WT_SKIP_CODEGRAPH=1`.
+- probes DB connectivity and runs smoke checks.
 
-1. **Pick a branch name.** Convention: `<type>/<short-slug>` where type ∈ `feat | fix | chore | refactor | docs | test`. Example: `feat/chat-streaming`, `fix/oauth-redirect`.
-2. **Run the bootstrap script.** `./scripts/worktree-bootstrap.sh <branch>` (or `.ps1` on Windows). The script:
-   - runs `git worktree add .worktrees/<branch-slug> -b <branch> origin/<default-branch>` (or attaches to existing branch)
-   - resolves the **main** worktree path explicitly and copies `.env` files from there (`backend/.env`, `frontend/.env.local`)
-   - symlinks `backend/venv` to the main worktree's `backend/venv` (falls back to a fresh venv if missing)
-   - runs `npm install` in `frontend/`
-   - assigns unique dev-server ports via a stable hash of the branch slug (see Port Scheme), with collision detection
-   - patches `API_PORT` in `backend/.env`, `PORT` and `NEXT_PUBLIC_API_URL` in `frontend/.env.local` (so the frontend talks to **this** worktree's backend, not the main one)
-   - removes the inherited `.codegraph/` directory (the opencode plugin reindexes on first query)
-   - probes DB connectivity and warns if unreachable
-   - smoke-tests the install: `python -c "import app.main"` and `npm run lint`
-   - prints a summary: worktree path, branch, ports, browser-profile warning, and pointers to the per-package AGENTS.md
-3. **Verify.** Open the worktree, run `python -m compileall app` (backend) and `npm run lint` (frontend). Smoke-test the dev server boots.
-4. **Work.** Commit on the new branch. Do not push to `main` directly from a worktree session.
+## Verification
 
-Idempotency: re-running the script on an existing worktree is safe — it skips steps that are already done and reports status.
+After bootstrap, verify:
 
-## Step-by-step: teardown
+```bash
+git worktree list
+git status
+```
 
-When the PR is merged (or you want to abandon the branch):
+Inside the new worktree, check:
 
-1. **Merge the PR first.** Worktree teardown deletes local state; once gone, the branch is also deleted, so make sure remote has the merge.
-2. **Run teardown.** `./scripts/worktree-teardown.sh <branch> --force`. The script:
-   - refuses if there are uncommitted changes unless `--force` is passed
-   - refuses if the branch is not merged into `main` and `--force` is not passed
-   - stops the dev server if it is running on the assigned ports
-   - runs `git worktree remove --force <path>`
-   - runs `git branch -D <branch>` (only if merged, or `--force`)
-   - prunes `node_modules` / `venv` / build artifacts (already gone with the worktree dir, but verifies)
-3. **Verify.** `git worktree list` should no longer show the removed path.
+- `backend/.env` has the assigned backend port and URL values.
+- `frontend/.env.local` has the assigned frontend port and backend API URL.
+- `backend/venv`, `frontend/node_modules/`, and `.codegraph/` exist unless explicitly skipped or unavailable.
+- Backend compile and frontend lint/build checks are run as appropriate for the task.
 
-## Port scheme
+Use a separate browser profile or incognito window per active worktree. Auth cookies are scoped to `localhost`, so sharing a browser across worktrees can send stale cookies to the wrong backend.
 
-Avoid port collisions when multiple sessions boot dev servers simultaneously.
+## Port Scheme
 
 Ports are derived from a stable hash of the branch slug:
 
-- Backend: `8000 + (crc32(branch-slug) % 50)`
-- Frontend: `3000 + (crc32(branch-slug) % 50)`
+- Backend: `8000 + (sha256(branch-slug)[0:4] % 50)`
+- Frontend: `3000 + (sha256(branch-slug)[0:4] % 50)`
 
-The bootstrap script auto-assigns the next available pair by counting current worktrees. Override with `WT_BACKEND_PORT=... WT_FRONTEND_PORT=... ./scripts/worktree-bootstrap.sh <branch>`.
+Override with `WT_BACKEND_PORT` and `WT_FRONTEND_PORT`.
 
-This means the same branch always gets the same port pair across re-bootstraps (idempotent) and across team members (predictable). The bootstrap script also probes the assigned ports and warns if they are already bound. Override with `WT_BACKEND_PORT=... WT_FRONTEND_PORT=... ./scripts/worktree-bootstrap.sh <branch>`.
+## Shared vs Per-Worktree State
 
-The port pair is written to the worktree's `backend/.env` (`API_PORT`) and `frontend/.env.local` (`PORT` and `NEXT_PUBLIC_API_URL`).
+| State | Shared | Per-worktree | Notes |
+|---|---:|---:|---|
+| Source files | no | yes | branch isolation |
+| `backend/.env`, `frontend/.env.local` | copied | yes | patched per worktree |
+| `backend/venv` | linked when possible | yes | main venv is source of truth |
+| `frontend/node_modules` | no | yes | installed per worktree |
+| `.codegraph/` | no | yes | initialized per worktree |
+| `.git/` common data | yes | no | git worktree mechanism |
+| Postgres DB | yes | no | coordinate migrations manually |
+| Browser cookies | no | yes | use separate profiles |
 
-## Cookie / auth state
+## Teardown
 
-The auth cookie (`access_token`) is `httpOnly`, signed with `JWT_SECRET` from `backend/.env`, and scoped to `Domain=localhost`. That means:
+Run teardown without force first:
 
-- The same browser will send the cookie to **any** backend on `localhost:80xx`.
-- If the cookie was issued by backend A (port 8000) but the browser now hits backend B (port 8001) for `/api/auth/me`, backend B will decode it (same `JWT_SECRET` because the `.env` is copied from main) and look up the `user_id`. The user record may or may not exist in B's database view.
-- The same `JWT_SECRET` is also why two backends cannot issue distinguishable cookies.
+```bash
+./scripts/worktree-teardown.sh feat/my-branch
+```
 
-**Workaround:** use a **separate browser profile** (or a private/incognito window) per worktree. Each profile keeps its own cookie jar. Do not share a browser across two active worktree sessions.
+PowerShell:
 
-## Database
+```powershell
+.\scripts\worktree-teardown.ps1 feat/my-branch
+```
 
-**Shared, single instance. No per-session isolation.**
+The teardown scripts are intentionally conservative:
 
-This project is pre-MVP with no real users, so a single Postgres database is used by every session. The Alembic `alembic_version` row is shared — run migrations serially across sessions, not in parallel. If two sessions both run `alembic upgrade head` at the same time, the second will see "no new migrations" or a lock; both are safe (idempotent) but coordinate to avoid confusion.
+- They refuse uncommitted or untracked changes unless `--force` / `-Force` is supplied.
+- They refuse unmerged branches unless force is supplied.
+- They refuse to remove the default branch.
+- They refuse to remove the primary worktree.
+- They refuse any target outside this repo's `.worktrees/` directory.
+- They do not manually delete directories if `git worktree remove` fails.
+- They do not stop dev servers by default.
 
-LangGraph checkpoint tables are also shared. Conversation `thread_id`s are stable across sessions — see `backend/AGENTS.md` for thread-scoping rules.
+Use force only after explicit confirmation that unmerged commits or local changes may be discarded:
 
-When the product graduates to multi-user / production: revisit this. For now, simpler is correct.
+```bash
+./scripts/worktree-teardown.sh feat/my-branch --force
+```
 
-## CodeGraph
+PowerShell:
 
-`.codegraph/` holds a branch-aware index of the repo. Sharing it across worktrees returns stale symbol data after a branch switch.
+```powershell
+.\scripts\worktree-teardown.ps1 feat/my-branch -Force
+```
 
-**Policy:** re-index per worktree, no symlink. The bootstrap script removes the inherited `.codegraph/` directory from the new worktree. The opencode plugin (not a CLI) detects the missing index and reindexes on first query in the new session.
+To stop dev servers, opt in:
 
-## What is shared vs per-worktree
+```bash
+./scripts/worktree-teardown.sh feat/my-branch --stop-servers
+```
 
-| State                        | Shared | Per-worktree | Why                                         |
-|------------------------------|--------|--------------|---------------------------------------------|
-| Source files                 | no     | yes          | branch isolation                            |
-| `.env`, `.env.local`         | copy   | yes          | may carry session-specific overrides        |
-| `backend/venv`               | symlink | yes (shared via main) | venv contents are read-only in worktrees; main venv is the source of truth |
-| `frontend/node_modules`      | no     | yes          | writable, large, version-pinned per Node    |
-| Build artifacts (`.next/`, `__pycache__/`, `dist/`) | no | yes   | generated, ignored by git                  |
-| `.codegraph/`                | no     | yes          | branch-aware index, must re-index           |
-| `.git/`                      | yes    | no           | git worktree mechanism                      |
-| Postgres DB                  | yes    | no           | pre-MVP, no isolation needed                |
-| OAuth cookies / browser state| no     | yes          | per-session, never share across sessions    |
-| LangSmith traces             | yes    | no           | trace by thread_id, not worktree            |
+PowerShell:
 
-## Session-end protocol
+```powershell
+.\scripts\worktree-teardown.ps1 feat/my-branch -StopServers
+```
 
-Before stopping a session or handing off:
+Even with stop-server mode enabled, the script only stops a process when its command or executable path can be tied to the worktree path.
 
-1. `git status` — leave the tree clean or make an intentional WIP commit.
-2. WIP commit message format: `wip(<scope>): <what is half-done>`. Do not push WIP commits unless asked.
-3. If you are pausing for the user, summarize: branch name, worktree path, ports, last commit SHA, what is left.
-4. Do not merge your own PR if other sessions are active on overlapping paths — let the user merge.
+## Session-End Protocol
 
-## Coordination across sessions
+Before pausing, handing off, or tearing down:
 
-Two sessions on the same repo can collide in three ways:
-
-1. **File edits** — different worktrees, different branches, no collision possible at the FS level. Only collide if both push to the same target branch.
-2. **Migrations** — shared DB, shared `alembic_version`. Coordinate: one session writes migrations, the other rebases and re-runs.
-3. **Ports** — auto-assigned by script, collisions avoided by counting worktrees.
-
-No other shared mutable state exists (no S3, no Redis, no external services in pre-MVP). If you add one, document it here.
+1. Run `git status`.
+2. Leave the tree clean, or make an intentional WIP commit with `wip(<scope>): <what is half-done>`.
+3. Summarize branch name, worktree path, ports, last commit SHA, and remaining work.
+4. Coordinate migrations because all worktrees share one database.
 
 ## Troubleshooting
 
-- **"branch already used by worktree"** — `git worktree list` to find the existing worktree. Re-run bootstrap against the existing worktree (it will detect and skip creation).
-- **"port already in use"** — another process bound the port. Check `git worktree list` to see if a stale worktree is still holding it. `git worktree remove` the stale one or kill the process.
-- **CodeGraph symbols look wrong** — index is stale. Open a query in the worktree; the opencode plugin detects the missing `.codegraph/` and rebuilds. To force a clean rebuild, delete `.codegraph/` in the worktree and run a query.
-- **Dashboard flickers between "Loading your workspace" and the dashboard** — almost always a stale auth cookie from a different worktree in the same browser. Use a separate browser profile (or incognito) for each active worktree. See "Cookie / auth state" above.
-- **`npm install` or `pip install` fails in new worktree** — check the source `.env` was copied correctly; some packages need env-driven config. Re-run the script with `--reinstall` (Bash) or `-Reinstall` (PowerShell) to wipe and reinstall.
-- **Want to share `.env` across all worktrees literally** — symlink it instead of copying. Out of scope for the script, but `New-Item -ItemType SymbolicLink` or `ln -s` does it.
+- `path exists but is not a registered worktree`: inspect the leftover directory manually; do not delete it blindly.
+- `port already in use`: stop the known process manually or choose override ports.
+- CodeGraph symbols look stale: delete `.codegraph/` in the worktree and run `codegraph init`.
+- OAuth redirects to the wrong port: check `backend/.env` values for `GOOGLE_REDIRECT_URI` and `FRONTEND_URL`.
+- Frontend calls the wrong backend: check `frontend/.env.local` for `NEXT_PUBLIC_API_URL`.

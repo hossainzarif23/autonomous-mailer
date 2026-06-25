@@ -2,7 +2,7 @@
 # Idempotent. Re-running on an existing worktree is safe.
 #
 # Usage: .\scripts\worktree-bootstrap.ps1 <branch> [-Reinstall] [-DryRun]
-# Env overrides: $env:WT_BACKEND_PORT, $env:WT_FRONTEND_PORT, $env:WT_REPO_ROOT, $env:WT_SKIP_INSTALL, $env:WT_DIR
+# Env overrides: $env:WT_BACKEND_PORT, $env:WT_FRONTEND_PORT, $env:WT_REPO_ROOT, $env:WT_SKIP_INSTALL, $env:WT_SKIP_CODEGRAPH, $env:WT_DIR
 
 [CmdletBinding()]
 param(
@@ -70,6 +70,11 @@ Log "repo:     $RepoRoot"
 Log "branch:   $Branch"
 Log "worktree: $WtDir"
 
+git check-ignore -q '.worktrees' 2>$null | Out-Null
+if ($LASTEXITCODE -ne 0 -and -not $env:WT_DIR) {
+    Err ".worktrees/ is not ignored by git; add it to .gitignore before bootstrapping"
+}
+
 # ---------- discover default branch (F10) ----------
 $DefaultBranch = $null
 try {
@@ -127,8 +132,23 @@ try {
 
 # ---------- create or attach worktree (F15: literal match, porcelain parser) ----------
 $wtExists = Test-Path $WtDir
+$ReuseExistingPorts = $false
 # Normalize the path for comparison (git reports forward slashes; we may have backslashes)
 $wtDirNormalized = ($WtDir -replace '\\', '/').TrimEnd('/')
+$branchAttached = $false
+$attachedPath = $null
+$wtLinesAttached = git worktree list --porcelain
+$candidateAttached = $null
+for ($i = 0; $i -lt $wtLinesAttached.Count; $i++) {
+    if ($wtLinesAttached[$i] -match '^worktree (.+)$') {
+        $candidateAttached = $Matches[1]
+    }
+    if ($wtLinesAttached[$i] -match '^branch (.+)$' -and $Matches[1] -eq "refs/heads/$Branch") {
+        $branchAttached = $true
+        $attachedPath = $candidateAttached
+        break
+    }
+}
 if ($wtExists) {
     Warn "worktree path already exists: $WtDir"
     $registered = $false
@@ -144,6 +164,7 @@ if ($wtExists) {
     }
     if ($registered) {
         Log "worktree already registered, reusing"
+        $ReuseExistingPorts = $true
     } else {
         Err "path exists but is not a registered worktree; remove it or pick a different branch"
     }
@@ -159,6 +180,7 @@ if ($wtExists) {
             $WtDir = $attachedPath
         }
         Log "reusing worktree at $WtDir"
+        $ReuseExistingPorts = $true
     } elseif ($localExists) {
         try { Invoke-Step "git worktree add $WtDir $Branch" { git worktree add $WtDir $Branch 2>&1 | Out-Null } } catch { Warn "worktree add reported: $_" }
     } elseif ($remoteExists) {
@@ -188,21 +210,29 @@ if ($DryRun -and -not (Test-Path $WtDir)) {
 }
 Set-Location $WtDir
 
-# ---------- copy .env files (F3: always from MAIN) ----------
-function Copy-Env($src, $dst) {
+# ---------- copy/create .env files (F3: always prefer MAIN, fall back to examples) ----------
+function Copy-Env($src, $fallback, $dst) {
     if ((Test-Path $dst) -and -not $Reinstall) {
         Log "env exists, skipping copy: $dst (use -Reinstall to overwrite)"
         return
     }
+    $source = $null
     if (Test-Path $src) {
-        Invoke-Step "Copy-Item $src -> $dst" { Copy-Item $src $dst -Force }
-        if (-not $DryRun) { Log "env copied: $dst" }
+        $source = $src
+    } elseif ($fallback -and (Test-Path $fallback)) {
+        $source = $fallback
+        Warn "no source env at $src; using example $fallback"
+    }
+
+    if ($source) {
+        Invoke-Step "Copy-Item $source -> $dst" { Copy-Item $source $dst -Force }
+        if (-not $DryRun) { Log "env created: $dst" }
     } else {
-        Warn "no source env at $src, skipping"
+        Warn "no source env or example for $dst, skipping"
     }
 }
-Copy-Env (Join-Path $MainWtPath 'backend\.env')        'backend\.env'
-Copy-Env (Join-Path $MainWtPath 'frontend\.env.local') 'frontend\.env.local'
+Copy-Env (Join-Path $MainWtPath 'backend\.env')        'backend\.env.example'             'backend\.env'
+Copy-Env (Join-Path $MainWtPath 'frontend\.env.local') 'frontend\.env.local.example'      'frontend\.env.local'
 
 # ---------- assign ports (F14: hash-based) ----------
 # Stable hash-based port per branch slug, with collision detection.
@@ -233,12 +263,12 @@ if (Test-Path 'frontend\.env.local') {
     if ($line) { $existingFrontendPort = ($line -split '=', 2)[1].Trim() }
 }
 
-if ($env:WT_BACKEND_PORT)        { $BackendPort  = [int]$env:WT_BACKEND_PORT }
-elseif ($existingApiPort)        { $BackendPort  = [int]$existingApiPort; Log "reusing existing API_PORT=$BackendPort from .env" }
-else                             { $BackendPort  = Hash-To-Port $BranchSlug 8000 }
-if ($env:WT_FRONTEND_PORT)       { $FrontendPort = [int]$env:WT_FRONTEND_PORT }
-elseif ($existingFrontendPort)   { $FrontendPort = [int]$existingFrontendPort; Log "reusing existing PORT=$FrontendPort from .env" }
-else                             { $FrontendPort = Hash-To-Port $BranchSlug 3000 }
+if ($env:WT_BACKEND_PORT)                    { $BackendPort  = [int]$env:WT_BACKEND_PORT }
+elseif ($ReuseExistingPorts -and $existingApiPort) { $BackendPort  = [int]$existingApiPort; Log "reusing existing API_PORT=$BackendPort from .env" }
+else                                         { $BackendPort  = Hash-To-Port $BranchSlug 8000 }
+if ($env:WT_FRONTEND_PORT)                   { $FrontendPort = [int]$env:WT_FRONTEND_PORT }
+elseif ($ReuseExistingPorts -and $existingFrontendPort) { $FrontendPort = [int]$existingFrontendPort; Log "reusing existing PORT=$FrontendPort from .env" }
+else                                         { $FrontendPort = Hash-To-Port $BranchSlug 3000 }
 Log "ports:    backend=$BackendPort  frontend=$FrontendPort"
 
 # ---------- probe assigned ports (F17) ----------
@@ -272,6 +302,9 @@ function Patch-EnvVar($file, $key, $value) {
     }
 }
 Patch-EnvVar 'backend\.env'        'API_PORT' $BackendPort
+Patch-EnvVar 'backend\.env'        'APP_URL' "http://localhost:${BackendPort}"
+Patch-EnvVar 'backend\.env'        'GOOGLE_REDIRECT_URI' "http://localhost:${BackendPort}/api/auth/callback"
+Patch-EnvVar 'backend\.env'        'FRONTEND_URL' "http://localhost:${FrontendPort}"
 Patch-EnvVar 'frontend\.env.local' 'PORT'     $FrontendPort
 Patch-EnvVar 'frontend\.env.local' 'NEXT_PUBLIC_API_URL' "http://localhost:${BackendPort}/api"
 
@@ -323,9 +356,19 @@ if ($env:WT_SKIP_INSTALL -eq "1") {
 }
 
 # ---------- CodeGraph (F7) ----------
-if (Test-Path '.codegraph') {
-    Invoke-Step "Remove-Item -Recurse .codegraph" { Remove-Item -Recurse -Force '.codegraph' }
-    if (-not $DryRun) { Log "removed inherited .codegraph/ (opencode plugin will reindex on first query)" }
+if ($env:WT_SKIP_CODEGRAPH -eq "1") {
+    Warn "skipping CodeGraph setup (WT_SKIP_CODEGRAPH=1)"
+} else {
+    if (Test-Path '.codegraph') {
+        Invoke-Step "Remove-Item -Recurse .codegraph" { Remove-Item -Recurse -Force '.codegraph' }
+        if (-not $DryRun) { Log "removed inherited .codegraph/" }
+    }
+    if (Get-Command codegraph -ErrorAction SilentlyContinue) {
+        Invoke-Step "codegraph init" { codegraph init | Out-Null }
+        if (-not $DryRun) { Log "codegraph: initialized" }
+    } else {
+        Warn "codegraph CLI not found; run 'codegraph init' in the worktree when available"
+    }
 }
 
 # ---------- DB connectivity check (F13) ----------
@@ -336,6 +379,18 @@ if ((Test-Path 'backend\.env') -and -not $DryRun) {
     # PowerShell does not treat python's stderr writes as terminating errors.
     $dbScript = @'
 import os, sys
+def load_env(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key, value.strip().strip('"').strip("'"))
+    except FileNotFoundError:
+        pass
+load_env(os.path.join(os.getcwd(), "backend", ".env"))
 try:
     import psycopg
 except ImportError:

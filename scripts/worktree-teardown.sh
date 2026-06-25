@@ -2,7 +2,7 @@
 # Tear down a worktree session. Removes the worktree, deletes the local branch.
 # Refuses if there are uncommitted changes or the branch is unmerged, unless --force is passed.
 #
-# Usage: ./scripts/worktree-teardown.sh <branch> [--force] [--dry-run]
+# Usage: ./scripts/worktree-teardown.sh <branch> [--force] [--stop-servers] [--dry-run]
 
 set -euo pipefail
 
@@ -18,18 +18,20 @@ die()  { err "$*"; exit 1; }
 
 BRANCH="${1:-}"
 FORCE=0
+STOP_SERVERS=0
 DRY_RUN=0
 shift || true
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --force|-f) FORCE=1; shift ;;
+    --stop-servers) STOP_SERVERS=1; shift ;;
     --dry-run)  DRY_RUN=1; shift ;;
     -h|--help)
       sed -n '2,5p' "$0"; exit 0 ;;
     *) die "unknown arg: $1" ;;
   esac
 done
-[[ -z "$BRANCH" ]] && die "usage: $0 <branch> [--force] [--dry-run]"
+[[ -z "$BRANCH" ]] && die "usage: $0 <branch> [--force] [--stop-servers] [--dry-run]"
 
 run() {
   if [[ $DRY_RUN -eq 1 ]]; then
@@ -61,6 +63,7 @@ if [[ -z "$DEFAULT_BRANCH" ]]; then
   elif git show-ref --verify --quiet refs/heads/master; then DEFAULT_BRANCH="master"
   else DEFAULT_BRANCH="$(git rev-parse --abbrev-ref HEAD)"; fi
 fi
+[[ "$BRANCH" == "$DEFAULT_BRANCH" ]] && die "refusing to tear down default branch $DEFAULT_BRANCH"
 
 # ---------- find worktree path ----------
 # Note: worktree paths may contain spaces, so we read each line verbatim
@@ -81,6 +84,22 @@ while IFS= read -r line; do
 done < <(git worktree list --porcelain)
 [[ -z "$WT_PATH" ]] && die "no worktree found for branch $BRANCH"
 log "worktree: $WT_PATH"
+
+canonical_dir() {
+  (cd "$1" && pwd -P)
+}
+
+WORKTREES_ROOT="$REPO_ROOT/.worktrees"
+[[ -d "$WORKTREES_ROOT" ]] || die "expected worktree root does not exist: $WORKTREES_ROOT"
+[[ -d "$WT_PATH" ]] || die "registered worktree path is missing on disk: $WT_PATH; inspect with git worktree list --porcelain"
+REPO_ROOT_CANON="$(canonical_dir "$REPO_ROOT")"
+WORKTREES_ROOT_CANON="$(canonical_dir "$WORKTREES_ROOT")"
+WT_PATH_CANON="$(canonical_dir "$WT_PATH")"
+[[ "$WT_PATH_CANON" != "$REPO_ROOT_CANON" ]] || die "refusing to remove the primary worktree: $WT_PATH"
+case "$WT_PATH_CANON" in
+  "$WORKTREES_ROOT_CANON"/*) ;;
+  *) die "refusing to remove $WT_PATH because it is outside $WORKTREES_ROOT" ;;
+esac
 
 # ---------- safety: uncommitted changes ----------
 if [[ -d "$WT_PATH" ]]; then
@@ -113,8 +132,19 @@ if [[ $FORCE -eq 0 ]]; then
   fi
 fi
 
-# ---------- try to stop dev server on assigned ports (F5: cross-platform) ----------
-# Strategy: try ss, then netstat, then no-op with a clear warning.
+# ---------- optionally stop dev server on assigned ports ----------
+process_belongs_to_worktree() {
+  local pid="$1"
+  local needle="$WT_PATH_CANON"
+  local cmdline=""
+  if [[ -r "/proc/$pid/cmdline" ]]; then
+    cmdline="$(tr '\0' ' ' < "/proc/$pid/cmdline" 2>/dev/null || true)"
+  elif command -v ps >/dev/null 2>&1; then
+    cmdline="$(ps -p "$pid" -o args= 2>/dev/null || true)"
+  fi
+  [[ "$cmdline" == *"$needle"* || "$cmdline" == *"$WT_PATH"* ]]
+}
+
 stop_port() {
   local port="$1"
   local pids=""
@@ -127,16 +157,24 @@ stop_port() {
     pids="$(netstat -ano 2>/dev/null | awk -v p=":$port" '$2 ~ p { print $5 }' | grep -E '^[0-9]+$' | sort -u || true)"
   fi
   if [[ -n "$pids" ]]; then
-    log "stopping processes on port $port (PIDs: $pids)"
-    run "kill $pids 2>/dev/null || true"
-    sleep 1
-    run "kill -9 $pids 2>/dev/null || true"
+    for pid in $pids; do
+      if process_belongs_to_worktree "$pid"; then
+        log "stopping worktree process on port $port (PID $pid)"
+        run "kill $pid 2>/dev/null || true"
+        sleep 1
+        run "kill -9 $pid 2>/dev/null || true"
+      else
+        warn "leaving PID $pid on port $port running; command does not prove it belongs to $WT_PATH"
+      fi
+    done
   else
     warn "could not determine PID for port $port (no ss/netstat with -p support); you may need to stop the dev server manually"
   fi
 }
 
-if [[ -d "$WT_PATH" ]]; then
+if [[ $STOP_SERVERS -eq 0 ]]; then
+  warn "not stopping dev servers by default; pass --stop-servers to stop only processes that can be tied to this worktree"
+elif [[ -d "$WT_PATH" ]]; then
   for envfile in "$WT_PATH/backend/.env" "$WT_PATH/frontend/.env.local"; do
     [[ -f "$envfile" ]] || continue
     port=$(grep -E '^(API_PORT|PORT)=' "$envfile" 2>/dev/null | head -1 | cut -d= -f2 || true)
@@ -148,16 +186,20 @@ fi
 
 # ---------- remove worktree ----------
 log "removing worktree"
-run "git worktree remove --force '$WT_PATH'" || {
-  warn "git worktree remove failed; removing dir manually"
-  run "rm -rf '$WT_PATH'"
-  run "git worktree prune"
-}
+if [[ $FORCE -eq 1 ]]; then
+  run "git worktree remove --force '$WT_PATH'"
+else
+  run "git worktree remove '$WT_PATH'"
+fi
 
 # ---------- delete branch ----------
 if git show-ref --verify --quiet "refs/heads/$BRANCH"; then
   log "deleting branch $BRANCH"
-  run "git branch -D '$BRANCH'"
+  if [[ $FORCE -eq 1 ]]; then
+    run "git branch -D '$BRANCH'"
+  else
+    run "git branch -d '$BRANCH'"
+  fi
 else
   log "branch $BRANCH already gone"
 fi

@@ -9,6 +9,7 @@ All env vars are `NEXT_PUBLIC_` (client-exposed), which is appropriate since thi
 |---|---|---|
 | `NEXT_PUBLIC_API_URL` | `http://localhost:8000/api` | `lib/api.ts`, `hooks/useChat.ts`, `hooks/useSSE.ts`, `app/login/page.tsx` (all with `?? "http://localhost:8000/api"` fallback) |
 | `NEXT_PUBLIC_APP_NAME` | `Email Agent` | declared in the example but **not referenced anywhere in code** |
+| `PORT` | `3000` | Next.js dev server port; patched per worktree by the bootstrap scripts |
 
 ## Notes
 - The hardcoded fallback `http://localhost:8000/api` matches the FastAPI backend in `backend/`. The fallback is duplicated in `lib/api.ts`, `hooks/useChat.ts`, and `hooks/useSSE.ts` — keep them in sync when changing the base URL.

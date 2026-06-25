@@ -3,7 +3,7 @@
 # Idempotent. Re-running on an existing worktree is safe.
 #
 # Usage: ./scripts/worktree-bootstrap.sh <branch> [--reinstall] [--dry-run]
-# Env overrides: WT_BACKEND_PORT, WT_FRONTEND_PORT, WT_REPO_ROOT, WT_SKIP_INSTALL, WT_DIR
+# Env overrides: WT_BACKEND_PORT, WT_FRONTEND_PORT, WT_REPO_ROOT, WT_SKIP_INSTALL, WT_SKIP_CODEGRAPH, WT_DIR
 
 set -euo pipefail
 
@@ -58,11 +58,16 @@ cd "$REPO_ROOT"
 
 REPO_NAME="$(basename "$REPO_ROOT")"
 BRANCH_SLUG="${BRANCH//\//_}"
+WT_DIR_FROM_ENV="${WT_DIR:-}"
 WT_DIR="${WT_DIR:-$REPO_ROOT/.worktrees/${BRANCH_SLUG}}"
 
 log "repo:     $REPO_ROOT"
 log "branch:   $BRANCH"
 log "worktree: $WT_DIR"
+
+if [[ -z "$WT_DIR_FROM_ENV" ]] && ! git check-ignore -q .worktrees 2>/dev/null; then
+  die ".worktrees/ is not ignored by git; add it to .gitignore before bootstrapping"
+fi
 
 # ---------- discover default branch (F10) ----------
 # `set +e` around the symbolic-ref because `pipefail` would otherwise abort
@@ -122,6 +127,7 @@ run "git fetch origin '$DEFAULT_BRANCH'" || warn "fetch of $DEFAULT_BRANCH faile
 
 # ---------- create or attach worktree ----------
 WT_EXISTS=0
+REUSE_EXISTING_PORTS=0
 if [[ -d "$WT_DIR" ]]; then
   WT_EXISTS=1
   warn "worktree path already exists: $WT_DIR"
@@ -134,6 +140,7 @@ if [[ -d "$WT_DIR" ]]; then
   done < <(git worktree list --porcelain)
   if [[ $REGISTERED -eq 1 ]]; then
     log "worktree already registered, reusing"
+    REUSE_EXISTING_PORTS=1
   else
     die "path exists but is not a registered worktree; remove it or pick a different branch"
   fi
@@ -164,6 +171,7 @@ if [[ $WT_EXISTS -eq 0 ]]; then
       WT_DIR="$BRANCH_ATTACHED_PATH"
     fi
     log "reusing worktree at $WT_DIR"
+    REUSE_EXISTING_PORTS=1
   elif git show-ref --verify --quiet "refs/heads/$BRANCH"; then
     run "git worktree add '$WT_DIR' '$BRANCH'"
   elif git show-ref --verify --quiet "refs/remotes/origin/$BRANCH"; then
@@ -189,22 +197,30 @@ if [[ $DRY_RUN -eq 1 && ! -d "$WT_DIR" ]]; then
 fi
 cd "$WT_DIR" || die "could not cd into $WT_DIR"
 
-# ---------- copy .env files (F3: always from MAIN) ----------
+# ---------- copy/create .env files (F3: always prefer MAIN, fall back to examples) ----------
 copy_env() {
-  local src="$1" dst="$2"
+  local src="$1" fallback="$2" dst="$3"
   if [[ -f "$dst" && $REINSTALL -eq 0 ]]; then
     log "env exists, skipping copy: $dst (use --reinstall to overwrite)"
     return
   fi
+  local source=""
   if [[ -f "$src" ]]; then
-    run "cp '$src' '$dst'"
-    [[ $DRY_RUN -eq 0 ]] && log "env copied: $dst"
+    source="$src"
+  elif [[ -n "$fallback" && -f "$fallback" ]]; then
+    source="$fallback"
+    warn "no source env at $src; using example $fallback"
+  fi
+
+  if [[ -n "$source" ]]; then
+    run "cp '$source' '$dst'"
+    [[ $DRY_RUN -eq 0 ]] && log "env created: $dst"
   else
-    warn "no source env at $src, skipping"
+    warn "no source env or example for $dst, skipping"
   fi
 }
-copy_env "$MAIN_WT_PATH/backend/.env"        "backend/.env"
-copy_env "$MAIN_WT_PATH/frontend/.env.local" "frontend/.env.local"
+copy_env "$MAIN_WT_PATH/backend/.env"        "backend/.env.example"        "backend/.env"
+copy_env "$MAIN_WT_PATH/frontend/.env.local" "frontend/.env.local.example" "frontend/.env.local"
 
 # ---------- assign ports (F14: hash-based) ----------
 # Stable hash-based port per branch slug, with collision detection.
@@ -232,7 +248,7 @@ fi
 
 if [[ -n "${WT_BACKEND_PORT:-}" ]]; then
   BACKEND_PORT="$WT_BACKEND_PORT"
-elif [[ -n "$EXISTING_API_PORT" ]]; then
+elif [[ $REUSE_EXISTING_PORTS -eq 1 && -n "$EXISTING_API_PORT" ]]; then
   BACKEND_PORT="$EXISTING_API_PORT"
   log "reusing existing API_PORT=$BACKEND_PORT from .env"
 else
@@ -240,7 +256,7 @@ else
 fi
 if [[ -n "${WT_FRONTEND_PORT:-}" ]]; then
   FRONTEND_PORT="$WT_FRONTEND_PORT"
-elif [[ -n "$EXISTING_FRONTEND_PORT" ]]; then
+elif [[ $REUSE_EXISTING_PORTS -eq 1 && -n "$EXISTING_FRONTEND_PORT" ]]; then
   FRONTEND_PORT="$EXISTING_FRONTEND_PORT"
   log "reusing existing PORT=$FRONTEND_PORT from .env"
 else
@@ -280,6 +296,9 @@ patch_env_var() {
   fi
 }
 patch_env_var "backend/.env" "API_PORT" "$BACKEND_PORT"
+patch_env_var "backend/.env" "APP_URL" "http://localhost:${BACKEND_PORT}"
+patch_env_var "backend/.env" "GOOGLE_REDIRECT_URI" "http://localhost:${BACKEND_PORT}/api/auth/callback"
+patch_env_var "backend/.env" "FRONTEND_URL" "http://localhost:${FRONTEND_PORT}"
 patch_env_var "frontend/.env.local" "PORT" "$FRONTEND_PORT"
 
 # F2: patch NEXT_PUBLIC_API_URL so frontend calls THIS backend, not the main worktree's
@@ -324,12 +343,20 @@ else
   fi
 fi
 
-# ---------- CodeGraph (F7: remove CLI check, delete .codegraph/) ----------
-# CodeGraph is plugin-managed by opencode; the index is rebuilt on next session start.
-# Remove any inherited .codegraph/ so the plugin reindexes for this worktree.
-if [[ -d ".codegraph" ]]; then
-  run "rm -rf '.codegraph'"
-  [[ $DRY_RUN -eq 0 ]] && log "removed inherited .codegraph/ (opencode plugin will reindex on first query)"
+# ---------- CodeGraph (F7) ----------
+if [[ "${WT_SKIP_CODEGRAPH:-0}" == "1" ]]; then
+  warn "skipping CodeGraph setup (WT_SKIP_CODEGRAPH=1)"
+else
+  if [[ -d ".codegraph" ]]; then
+    run "rm -rf '.codegraph'"
+    [[ $DRY_RUN -eq 0 ]] && log "removed inherited .codegraph/"
+  fi
+  if command -v codegraph >/dev/null 2>&1; then
+    run "codegraph init >/dev/null"
+    [[ $DRY_RUN -eq 0 ]] && log "codegraph: initialized"
+  else
+    warn "codegraph CLI not found; run 'codegraph init' in the worktree when available"
+  fi
 fi
 
 # ---------- DB connectivity check (F13) ----------
@@ -349,6 +376,18 @@ if [[ -f "backend/.env" ]]; then
   if [[ -n "$DB_PY" ]]; then
     DB_CHECK_OUT="$(cd backend && "$DB_PY" -c '
 import os, sys
+def load_env(path):
+    try:
+        with open(path, encoding="utf-8") as f:
+            for raw in f:
+                line = raw.strip()
+                if not line or line.startswith("#") or "=" not in line:
+                    continue
+                key, value = line.split("=", 1)
+                os.environ.setdefault(key, value.strip().strip(chr(34)).strip(chr(39)))
+    except FileNotFoundError:
+        pass
+load_env(os.path.join(os.getcwd(), ".env"))
 try:
     import psycopg
 except ImportError:
