@@ -1,10 +1,12 @@
 "use client";
 
+import { useRef, useState } from "react";
+
 import { api, getErrorMessage } from "@/lib/api";
 import { useApprovalStore } from "@/stores/approvalStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useToast } from "@/hooks/use-toast";
-import type { ChatContentBlock, ChatMessage, SSEEvent } from "@/types";
+import type { ChatContentBlock, ChatMessage, Conversation, SSEEvent } from "@/types";
 
 function buildMarkdownBlock(content: string): ChatContentBlock {
   return { type: "markdown", content };
@@ -154,6 +156,8 @@ export function useChat() {
     activeConversationId,
     appendMessage,
     setConversations,
+    upsertConversation,
+    removeConversationById,
     setActiveConversationId,
     setMessages,
     setStreaming,
@@ -162,6 +166,8 @@ export function useChat() {
     isStreaming
   } = useChatStore();
   const { toast } = useToast();
+  const [isCreatingConversation, setIsCreatingConversation] = useState(false);
+  const createConversationPromiseRef = useRef<Promise<string> | null>(null);
 
   async function refreshConversations() {
     const response = await api.get<{ id: string; title: string | null; created_at: string; updated_at: string }[]>("/chat/conversations");
@@ -183,19 +189,88 @@ export function useChat() {
     return response.data;
   }
 
-  async function ensureConversationId() {
-    if (activeConversationId) {
-      return activeConversationId;
+  async function runCreateConversation(): Promise<string> {
+    const tempId = `temp-${crypto.randomUUID()}`;
+    const nowIso = new Date().toISOString();
+    const optimisticConversation: Conversation = {
+      id: tempId,
+      title: null,
+      created_at: nowIso,
+      updated_at: nowIso
+    };
+
+    setIsCreatingConversation(true);
+    upsertConversation(optimisticConversation);
+    setActiveConversationId(tempId);
+    setMessages([]);
+
+    try {
+      const response = await api.post<{ id: string }>("/chat/conversations");
+      const realId = response.data.id;
+      // Replace the optimistic entry in place with the real conversation so
+      // the list and the active id stay in sync. Removing the temp first
+      // would leave a frame where activeConversationId points at a real id
+      // that isn't in the list, which the sidebar renders as "no active
+      // conversation" — the user perceives the click as a no-op.
+      upsertConversation({
+        id: realId,
+        title: null,
+        created_at: optimisticConversation.created_at,
+        updated_at: optimisticConversation.updated_at
+      });
+      if (useChatStore.getState().activeConversationId === tempId) {
+        setActiveConversationId(realId);
+      }
+      return realId;
+    } catch (error) {
+      removeConversationById(tempId);
+      if (useChatStore.getState().activeConversationId === tempId) {
+        setActiveConversationId(null);
+      }
+      throw error;
+    } finally {
+      setIsCreatingConversation(false);
+    }
+  }
+
+  function createConversation(): Promise<string> {
+    const currentActive = useChatStore.getState().activeConversationId;
+    if (currentActive && !currentActive.startsWith("temp-")) {
+      return Promise.resolve(currentActive);
     }
 
-    const response = await api.post<{ id: string }>("/chat/conversations");
-    setActiveConversationId(response.data.id);
-    await refreshConversations();
-    return response.data.id;
+    if (createConversationPromiseRef.current) {
+      return createConversationPromiseRef.current;
+    }
+
+    const promise = runCreateConversation()
+      .catch((error) => {
+        const message = getErrorMessage(error, "Failed to create a new conversation.");
+        toast({
+          title: "Conversation Error",
+          description: message
+        });
+        throw error;
+      })
+      .finally(() => {
+        createConversationPromiseRef.current = null;
+      });
+
+    createConversationPromiseRef.current = promise;
+    return promise;
+  }
+
+  async function ensureConversationId() {
+    const current = useChatStore.getState().activeConversationId;
+    if (current && !current.startsWith("temp-")) {
+      return current;
+    }
+
+    return createConversation();
   }
 
   async function loadConversation(conversationId: string) {
-    if (conversationId === activeConversationId) {
+    if (conversationId === useChatStore.getState().activeConversationId) {
       return;
     }
 
@@ -216,23 +291,6 @@ export function useChat() {
       await hydrateConversation(conversationId, { setActive: false });
     } catch {
       // Preserve current UI if background hydration fails.
-    }
-  }
-
-  async function createConversation() {
-    try {
-      const response = await api.post<{ id: string }>("/chat/conversations");
-      setActiveConversationId(response.data.id);
-      setMessages([]);
-      await refreshConversations();
-      return response.data.id;
-    } catch (error) {
-      const message = getErrorMessage(error, "Failed to create a new conversation.");
-      toast({
-        title: "Conversation Error",
-        description: message
-      });
-      throw error;
     }
   }
 
@@ -509,6 +567,7 @@ export function useChat() {
   return {
     activeConversationId,
     createConversation,
+    isCreatingConversation,
     isStreaming,
     loadConversation,
     refreshConversations,

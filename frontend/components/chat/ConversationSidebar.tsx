@@ -31,7 +31,7 @@ export function ConversationSidebar() {
     messages: state.messages,
     isStreaming: state.isStreaming
   }));
-  const { createConversation, loadConversation, refreshConversations } = useChat();
+  const { createConversation, isCreatingConversation, loadConversation, refreshConversations } = useChat();
 
   useEffect(() => {
     let cancelled = false;
@@ -120,9 +120,13 @@ export function ConversationSidebar() {
         </p>
       </div>
 
-      <Button className="mb-4 w-full justify-start rounded-[1.35rem] shadow-[0_18px_45px_-30px_rgba(5,150,105,0.55)]" onClick={() => void handleCreateConversation()} disabled={isStreaming}>
-        <MessageSquarePlus className="mr-2 h-4 w-4" />
-        New Chat
+      <Button className="mb-4 w-full justify-start rounded-[1.35rem] shadow-[0_18px_45px_-30px_rgba(5,150,105,0.55)]" onClick={() => void handleCreateConversation()} disabled={isStreaming || isCreatingConversation}>
+        {isCreatingConversation ? (
+          <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+        ) : (
+          <MessageSquarePlus className="mr-2 h-4 w-4" />
+        )}
+        {isCreatingConversation ? "Starting..." : "New Chat"}
       </Button>
 
       <div className="mb-4 rounded-[1.75rem] border border-border/70 bg-card/55 p-4 text-sm leading-7 text-muted-foreground">

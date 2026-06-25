@@ -6,10 +6,8 @@ from app.agents.context import AgentContext
 from app.agents.llm import get_llm
 from app.agents.tools.gmail_tools import (
     get_email_thread,
+    get_emails,
     get_full_email,
-    get_recent_emails,
-    search_emails_by_sender,
-    search_emails_by_topic,
 )
 
 MAIL_READER_SYSTEM_PROMPT = """
@@ -36,9 +34,7 @@ def get_mail_reader_agent(checkpointer=None):
         _mail_reader_agent = create_agent(
             model=get_llm(),
             tools=[
-                get_recent_emails,
-                search_emails_by_sender,
-                search_emails_by_topic,
+                get_emails,
                 get_email_thread,
                 get_full_email,
             ],

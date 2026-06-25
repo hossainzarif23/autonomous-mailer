@@ -3,8 +3,9 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from sqlalchemy import desc, select
-from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import ToolMessage
+from langchain_core.tools import tool
+from langgraph.prebuilt import ToolRuntime
 from langgraph.types import Command
 
 from app.agents.context import AgentContext

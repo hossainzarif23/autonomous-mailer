@@ -51,28 +51,29 @@ def _format_full_email(email: dict) -> str:
 
 
 @tool
-async def get_recent_emails(count: int, runtime: ToolRuntime[AgentContext]) -> str:
-    """Fetch the user's most recent emails."""
+async def get_emails(
+    sender: str | None = None,
+    topic: str | None = None,
+    count: int = 5,
+    runtime: ToolRuntime[AgentContext] = None,
+) -> str:
+    """Fetch the user's most recent emails, optionally filtered by sender or topic.
+
+    Args:
+        sender: If provided, restrict to emails from this sender (e.g. "Alice" or "alice@x.com").
+        topic: If provided, restrict to emails about this topic/keyword.
+        count: Maximum number of recent emails to return (1-20, default 5).
+
+    When neither sender nor topic is given, returns the user's `count` most recent
+    emails. When either is given, composes a Gmail query and returns matching
+    emails. Combinations are joined as a Gmail search query.
+    """
     gmail = runtime.context.gmail_service
-    emails = await gmail.list_messages(max_results=max(1, min(count, 20)))
-    return _format_email_list(emails)
-
-
-@tool
-async def search_emails_by_sender(sender: str, runtime: ToolRuntime[AgentContext]) -> str:
-    """Search the user's Gmail for emails from a sender."""
-    gmail = runtime.context.gmail_service
-    query = gmail._build_query(sender=sender)
-    emails = await gmail.list_messages(query=query, max_results=10)
-    return _format_email_list(emails)
-
-
-@tool
-async def search_emails_by_topic(topic: str, runtime: ToolRuntime[AgentContext]) -> str:
-    """Search the user's Gmail for emails about a topic or keyword."""
-    gmail = runtime.context.gmail_service
-    query = gmail._build_query(topic=topic)
-    emails = await gmail.list_messages(query=query, max_results=10)
+    query = gmail._build_query(sender=sender, topic=topic)
+    if query:
+        emails = await gmail.list_messages(query=query, max_results=10)
+    else:
+        emails = await gmail.list_messages(max_results=max(1, min(count, 20)))
     return _format_email_list(emails)
 
 
