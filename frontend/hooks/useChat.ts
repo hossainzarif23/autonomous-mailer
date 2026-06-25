@@ -289,6 +289,44 @@ export function useChat() {
     }
   }
 
+  async function deleteConversation(conversationId: string) {
+    // Optimistically remove the row from the sidebar so the UI feels
+    // instant; revert if the server call fails. The caller in the sidebar
+    // also keeps a guard against double-clicks via local state.
+    const wasActive = useChatStore.getState().activeConversationId === conversationId;
+    const remaining = useChatStore.getState().conversations.filter((entry) => entry.id !== conversationId);
+    removeConversationById(conversationId);
+    if (wasActive) {
+      setActiveConversationId(null);
+      setMessages([]);
+    }
+
+    try {
+      await api.delete(`/chat/conversations/${conversationId}`);
+    } catch (error) {
+      // Roll back: re-insert the conversation in its previous position so
+      // the user can retry instead of losing the row entirely.
+      if (!useChatStore.getState().conversations.some((entry) => entry.id === conversationId)) {
+        upsertConversation({
+          id: conversationId,
+          title: null,
+          created_at: new Date().toISOString(),
+          updated_at: new Date().toISOString()
+        });
+      }
+      // Restore order by re-applying the pre-delete snapshot if possible.
+      if (remaining.length > 0) {
+        setConversations(remaining);
+      }
+      const message = getErrorMessage(error, "Failed to delete the conversation.");
+      toast({
+        title: "Delete Failed",
+        description: message
+      });
+      throw error;
+    }
+  }
+
   async function sendMessage(message: string) {
     const trimmed = message.trim();
     if (!trimmed || isStreaming) {
@@ -562,6 +600,7 @@ export function useChat() {
   return {
     activeConversationId,
     createConversation,
+    deleteConversation,
     isCreatingConversation,
     isStreaming,
     loadConversation,

@@ -6,7 +6,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Request, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import Response, StreamingResponse
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, ToolMessage
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -583,6 +583,44 @@ async def list_conversations(
         .order_by(desc(Conversation.updated_at), desc(Conversation.created_at))
     )
     return [_serialize_conversation(conversation) for conversation in result.all()]
+
+
+@router.delete("/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_conversation(
+    conversation_id: str,
+    request: Request,
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    # Reuse the existing owner check so a non-owner gets 404 (not 403) and
+    # cannot probe for the existence of other users' conversations.
+    conversation = await _get_owned_conversation(db, conversation_id, current_user.id)
+
+    # Hard-delete the conversation and any drafts scoped to it. The
+    # EmailDraft FK is ON DELETE SET NULL, so we must remove the rows
+    # ourselves; otherwise they would survive as orphans.
+    draft_rows = await db.scalars(
+        select(EmailDraft).where(EmailDraft.conversation_id == conversation.id)
+    )
+    for draft in draft_rows.all():
+        await db.delete(draft)
+    await db.delete(conversation)
+    await db.commit()
+
+    # The coordinator's LangGraph checkpoints are keyed by thread_id ==
+    # conversation_id. Drop them so the next message in this thread starts
+    # from a clean state instead of replaying the old conversation.
+    try:
+        await request.app.state.checkpointer.adelete_thread(
+            {"configurable": {"thread_id": conversation_id}}
+        )
+    except Exception:
+        # Checkpoint cleanup is best-effort. If the table is missing or the
+        # pool is unhealthy, the row-level delete above is still authoritative
+        # for the user-facing data.
+        pass
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.get("/history/{conversation_id}", response_model=list[ChatMessageResponse])

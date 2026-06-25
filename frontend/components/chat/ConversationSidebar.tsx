@@ -1,9 +1,17 @@
 "use client";
 
-import { Loader2, LogOut, MessageSquarePlus } from "lucide-react";
+import { Loader2, LogOut, MessageSquarePlus, Trash2 } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle
+} from "@/components/ui/dialog";
 import { useAuth } from "@/hooks/useAuth";
 import { useChat } from "@/hooks/useChat";
 import { getErrorMessage } from "@/lib/api";
@@ -31,7 +39,9 @@ export function ConversationSidebar() {
     messages: state.messages,
     isStreaming: state.isStreaming
   }));
-  const { createConversation, isCreatingConversation, loadConversation, refreshConversations } = useChat();
+  const { createConversation, deleteConversation, isCreatingConversation, loadConversation, refreshConversations } = useChat();
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+  const [isDeletingConversation, setIsDeletingConversation] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -99,6 +109,21 @@ export function ConversationSidebar() {
     }
   }
 
+  async function handleConfirmDelete() {
+    if (!pendingDeleteId || isDeletingConversation) {
+      return;
+    }
+    setIsDeletingConversation(true);
+    try {
+      await deleteConversation(pendingDeleteId);
+      setPendingDeleteId(null);
+    } catch {
+      // Toasting is handled inside useChat.
+    } finally {
+      setIsDeletingConversation(false);
+    }
+  }
+
   return (
     <aside className="flex h-screen flex-col border-b border-border/60 bg-[linear-gradient(180deg,rgba(255,255,255,0.92),rgba(250,250,249,0.88))] p-6 backdrop-blur lg:border-b-0 lg:border-r">
       <div className="mb-8 flex items-start justify-between gap-4">
@@ -162,32 +187,49 @@ export function ConversationSidebar() {
           ) : (
             conversations.map((conversation) => {
               const isActive = conversation.id === activeConversationId;
+              const isPendingDelete = pendingDeleteId === conversation.id;
 
               return (
-                <button
+                <div
                   key={conversation.id}
-                  type="button"
-                  onClick={() => void handleOpenConversation(conversation.id)}
-                  disabled={isStreaming}
                   className={[
-                    "w-full rounded-[1.5rem] border px-4 py-3 text-left transition",
+                    "group relative w-full rounded-[1.5rem] border transition",
                     isActive
                       ? "border-primary/70 bg-primary/10 shadow-[0_18px_45px_-35px_rgba(5,150,105,0.55)]"
                       : "border-border bg-background/70 hover:border-primary/40 hover:bg-background"
                   ].join(" ")}
                 >
-                  <div className="flex items-start justify-between gap-3">
-                    <p className="line-clamp-2 text-sm font-medium">
-                      {conversation.title?.trim() || "New conversation"}
+                  <button
+                    type="button"
+                    onClick={() => void handleOpenConversation(conversation.id)}
+                    disabled={isStreaming || isPendingDelete}
+                    className="w-full rounded-[1.5rem] px-4 py-3 text-left"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <p className="line-clamp-2 pr-8 text-sm font-medium">
+                        {conversation.title?.trim() || "New conversation"}
+                      </p>
+                      <span className="shrink-0 text-xs text-muted-foreground">
+                        {formatConversationDate(conversation.updated_at)}
+                      </span>
+                    </div>
+                    <p className="mt-2 text-xs text-muted-foreground">
+                      {isActive ? "Open now" : "Open conversation history"}
                     </p>
-                    <span className="shrink-0 text-xs text-muted-foreground">
-                      {formatConversationDate(conversation.updated_at)}
-                    </span>
-                  </div>
-                  <p className="mt-2 text-xs text-muted-foreground">
-                    {isActive ? "Open now" : "Open conversation history"}
-                  </p>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    aria-label={`Delete conversation ${conversation.title?.trim() || "New conversation"}`}
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      setPendingDeleteId(conversation.id);
+                    }}
+                    disabled={isStreaming}
+                    className="absolute right-3 top-3 inline-flex h-7 w-7 items-center justify-center rounded-full border border-border/70 bg-background/80 text-muted-foreground opacity-0 transition hover:border-destructive/60 hover:bg-destructive/10 hover:text-destructive focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100"
+                  >
+                    <Trash2 className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               );
             })
           )}
@@ -200,6 +242,49 @@ export function ConversationSidebar() {
           Streaming response...
         </div>
       ) : null}
+
+      <Dialog
+        open={pendingDeleteId !== null}
+        onOpenChange={(open) => {
+          if (!open && !isDeletingConversation) {
+            setPendingDeleteId(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Delete this conversation?</DialogTitle>
+            <DialogDescription>
+              The conversation, its message history, and any drafts linked to it will be permanently removed. This action cannot be undone.
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setPendingDeleteId(null)}
+              disabled={isDeletingConversation}
+            >
+              Cancel
+            </Button>
+            <Button
+              type="button"
+              variant="default"
+              onClick={() => void handleConfirmDelete()}
+              disabled={isDeletingConversation}
+            >
+              {isDeletingConversation ? (
+                <>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                "Delete"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </aside>
   );
 }
