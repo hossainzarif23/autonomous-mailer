@@ -636,7 +636,16 @@ async def stream_chat_message(
                 version="v2",
             ):
                 if part["type"] == "messages":
-                    chunk, _metadata = part["data"]
+                    chunk, metadata = part["data"]
+                    # Only stream prose produced by the coordinator itself.
+                    # Sub-agent LLM tokens (web_search_agent, mail_reader_agent,
+                    # mailing_agent) come through this same stream but their prose
+                    # is destined for structured ToolMessage content — not raw
+                    # markdown. Suppressing them here prevents sub-agent prose
+                    # from leaking into the user's chat as duplicated content.
+                    node_name = metadata.get("langgraph_node") if isinstance(metadata, dict) else None
+                    if node_name and node_name != "agent":
+                        continue
                     tool_calls = getattr(chunk, "tool_calls", None) or []
                     if tool_calls:
                         for tool_call in tool_calls:
@@ -693,6 +702,42 @@ async def stream_chat_message(
                                         tool_call_id=tool_call_id,
                                     )
                                 )
+                                if message.name == "call_web_search":
+                                    # Surface the research content as a structured
+                                    # block during the stream so the frontend can
+                                    # render it via MarkdownResponse without waiting
+                                    # for the history reload. The frontend dedupes
+                                    # against any duplicate research_report block
+                                    # produced on history rehydration.
+                                    summary = _parse_research_payload(_message_text(message.content))
+                                    if summary:
+                                        yield _sse(
+                                            {
+                                                "type": "research_report",
+                                                "turn_id": turn_id,
+                                                "tool_call_id": tool_call_id,
+                                                "title": "Research Notes",
+                                                "content": summary,
+                                            }
+                                        )
+                                elif message.name == "call_mailing_agent":
+                                    # The coordinator wraps the draft JSON into the
+                                    # tool message; pass it to the frontend as a
+                                    # typed artifact so it can render the
+                                    # draft_email block in real time.
+                                    try:
+                                        draft_payload = json.loads(_message_text(message.content))
+                                        if isinstance(draft_payload, dict) and "to" in draft_payload:
+                                            yield _sse(
+                                                {
+                                                    "type": "draft_artifact",
+                                                    "turn_id": turn_id,
+                                                    "tool_call_id": tool_call_id,
+                                                    "draft": draft_payload,
+                                                }
+                                            )
+                                    except (json.JSONDecodeError, ValueError):
+                                        pass
                     interrupts = updates.get("__interrupt__", ())
                     for interrupt in interrupts:
                         interrupt_value = getattr(interrupt, "value", interrupt)
@@ -705,11 +750,15 @@ async def stream_chat_message(
                                 notification_service=notification_service,
                             )
                             for event in events:
+                                # The full approval_required event (with draft body)
+                                # is yielded on the request-scoped stream so the active
+                                # tab opens the modal even if the notification EventSource
+                                # is dead or reconnecting. The notification broadcast
+                                # already happened inside persist_hitl_interrupts for
+                                # other tabs / devices.
                                 yield _sse(
                                     {
-                                        "type": "approval_pending",
-                                        "draft_id": event.get("draft_id"),
-                                        "conversation_id": payload.conversation_id,
+                                        **event,
                                         "turn_id": turn_id,
                                     }
                                 )

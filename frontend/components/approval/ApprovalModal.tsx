@@ -14,12 +14,14 @@ import {
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { api, getErrorMessage } from "@/lib/api";
+import { useChat } from "@/hooks/useChat";
 import { useToast } from "@/hooks/use-toast";
 import { useApprovalStore } from "@/stores/approvalStore";
 
 export function ApprovalModal() {
   const { draft, originalDraft, isOpen, close, markPending, clearPending, updateDraft, feedback, setFeedback } = useApprovalStore();
   const { toast } = useToast();
+  const { reloadConversation } = useChat();
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   async function submit(action: "approve" | "reject") {
@@ -59,6 +61,15 @@ export function ApprovalModal() {
             ? "The agent is revising the draft using your feedback."
             : "The draft was resumed and the agent is finishing the workflow."
       });
+      // Refresh the chat history immediately so the draft card flips from
+      // "Waiting for approval" to "Sent" the moment the POST resolves. The
+      // notification stream's email_sent event would also trigger this, but
+      // the EventSource can be reconnecting and the broadcast is in-memory,
+      // so the SSE path is best-effort. The POST success is the source of
+      // truth and guarantees a UI update.
+      if (submittedDraft.conversation_id) {
+        void reloadConversation(submittedDraft.conversation_id);
+      }
     } catch (error) {
       clearPending(submittedDraft.id);
       useApprovalStore.getState().open(submittedDraft);
@@ -83,11 +94,6 @@ export function ApprovalModal() {
         </DialogHeader>
         <div className="flex-1 overflow-y-auto px-6 py-5">
           <div className="space-y-4">
-          {draft?.description ? (
-            <p className="whitespace-pre-wrap rounded-xl border border-border bg-muted/40 px-4 py-3 text-sm leading-6">
-              {draft.description}
-            </p>
-          ) : null}
           <Input
             value={draft?.to ?? ""}
             onChange={(event) => updateDraft({ to: event.target.value })}

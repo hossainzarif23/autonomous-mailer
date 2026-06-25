@@ -1,119 +1,211 @@
 "use client";
 
-import type { ReactNode } from "react";
-
-function renderInline(text: string, keyPrefix: string) {
-  const parts = text.split(/(`[^`]+`|\*\*[^*]+\*\*|\*[^*]+\*)/g).filter(Boolean);
-
-  return parts.map((part, index) => {
-    const key = `${keyPrefix}-${index}`;
-    if (part.startsWith("**") && part.endsWith("**")) {
-      return <strong key={key} className="font-semibold text-foreground">{part.slice(2, -2)}</strong>;
-    }
-    if (part.startsWith("*") && part.endsWith("*")) {
-      return <em key={key} className="italic">{part.slice(1, -1)}</em>;
-    }
-    if (part.startsWith("`") && part.endsWith("`")) {
-      return (
-        <code key={key} className="rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.92em] text-foreground">
-          {part.slice(1, -1)}
-        </code>
-      );
-    }
-    return <span key={key}>{part}</span>;
-  });
-}
+import type { ComponentProps, ReactNode } from "react";
+import ReactMarkdown, { type Components } from "react-markdown";
+import remarkGfm from "remark-gfm";
 
 interface MarkdownResponseProps {
   content: string;
 }
 
+type MarkdownComponentProps<T extends keyof JSX.IntrinsicElements> = ComponentProps<T> & {
+  node?: unknown;
+  children?: ReactNode;
+};
+
 export function MarkdownResponse({ content }: MarkdownResponseProps) {
-  const lines = content.split("\n");
-  const elements: ReactNode[] = [];
-  let index = 0;
-
-  while (index < lines.length) {
-    const rawLine = lines[index];
-    const line = rawLine.trim();
-
-    if (!line) {
-      index += 1;
-      continue;
-    }
-
-    const headingMatch = line.match(/^(#{1,3})\s+(.*)$/);
-    if (headingMatch) {
-      const level = headingMatch[1].length;
-      const headingText = headingMatch[2].trim();
-      const className =
-        level === 1
-          ? "text-3xl font-semibold tracking-tight text-foreground"
-          : level === 2
-            ? "text-2xl font-semibold tracking-tight text-foreground"
-            : "text-xl font-semibold text-foreground";
-      const Tag = level === 1 ? "h1" : level === 2 ? "h2" : "h3";
-      elements.push(
-        <Tag key={`heading-${index}`} className={className}>
-          {renderInline(headingText, `heading-${index}`)}
-        </Tag>
-      );
-      index += 1;
-      continue;
-    }
-
-    if (line.startsWith(">")) {
-      const quoteLines: string[] = [];
-      while (index < lines.length && lines[index].trim().startsWith(">")) {
-        quoteLines.push(lines[index].trim().replace(/^>\s?/, ""));
-        index += 1;
-      }
-      elements.push(
-        <blockquote
-          key={`quote-${index}`}
-          className="border-l-2 border-border pl-4 text-[15px] leading-7 text-muted-foreground"
-        >
-          {quoteLines.map((quoteLine, quoteIndex) => (
-            <p key={`quote-${index}-${quoteIndex}`}>{renderInline(quoteLine, `quote-${index}-${quoteIndex}`)}</p>
-          ))}
-        </blockquote>
-      );
-      continue;
-    }
-
-    if (/^([-*]|\d+\.)\s+/.test(line)) {
-      const items: string[] = [];
-      const ordered = /^\d+\./.test(line);
-      while (index < lines.length && /^([-*]|\d+\.)\s+/.test(lines[index].trim())) {
-        items.push(lines[index].trim().replace(/^([-*]|\d+\.)\s+/, ""));
-        index += 1;
-      }
-      const ListTag = ordered ? "ol" : "ul";
-      elements.push(
-        <ListTag
-          key={`list-${index}`}
-          className={ordered ? "list-decimal space-y-2 pl-6 text-[15px] leading-7" : "list-disc space-y-2 pl-6 text-[15px] leading-7"}
-        >
-          {items.map((item, itemIndex) => (
-            <li key={`list-${index}-${itemIndex}`}>{renderInline(item, `list-${index}-${itemIndex}`)}</li>
-          ))}
-        </ListTag>
-      );
-      continue;
-    }
-
-    const paragraphLines: string[] = [];
-    while (index < lines.length && lines[index].trim() && !/^(#{1,3})\s+/.test(lines[index].trim()) && !/^>\s?/.test(lines[index].trim()) && !/^([-*]|\d+\.)\s+/.test(lines[index].trim())) {
-      paragraphLines.push(lines[index].trim());
-      index += 1;
-    }
-
-    elements.push(
-      <p key={`paragraph-${index}`} className="text-[15px] leading-8 text-foreground/90">
-        {renderInline(paragraphLines.join(" "), `paragraph-${index}`)}
+  const components: Components = {
+    h1: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"h1">) => (
+      <h1
+        className={`text-3xl font-semibold tracking-tight text-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </h1>
+    ),
+    h2: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"h2">) => (
+      <h2
+        className={`text-2xl font-semibold tracking-tight text-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </h2>
+    ),
+    h3: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"h3">) => (
+      <h3
+        className={`text-xl font-semibold text-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </h3>
+    ),
+    h4: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"h4">) => (
+      <h4
+        className={`text-lg font-semibold text-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </h4>
+    ),
+    h5: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"h5">) => (
+      <h5
+        className={`text-base font-semibold text-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </h5>
+    ),
+    h6: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"h6">) => (
+      <h6
+        className={`text-sm font-semibold uppercase tracking-wider text-muted-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </h6>
+    ),
+    p: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"p">) => (
+      <p className={`leading-7 ${className ?? ""}`.trim()} {...rest}>
+        {children}
       </p>
-    );
-  }
+    ),
+    ul: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"ul">) => (
+      <ul
+        className={`list-disc space-y-2 pl-6 marker:text-muted-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </ul>
+    ),
+    ol: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"ol">) => (
+      <ol
+        className={`list-decimal space-y-2 pl-6 marker:text-muted-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </ol>
+    ),
+    li: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"li">) => (
+      <li className={`leading-7 ${className ?? ""}`.trim()} {...rest}>
+        {children}
+      </li>
+    ),
+    blockquote: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"blockquote">) => (
+      <blockquote
+        className={`border-l-2 border-border pl-4 text-muted-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </blockquote>
+    ),
+    code: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"code"> & { inline?: boolean }) => {
+      const isInline = (rest as { inline?: boolean }).inline;
+      if (isInline) {
+        return (
+          <code
+            className={`rounded-md bg-muted px-1.5 py-0.5 font-mono text-[0.92em] text-foreground ${className ?? ""}`.trim()}
+            {...rest}
+          >
+            {children}
+          </code>
+        );
+      }
+      return (
+        <code
+          className={`font-mono text-[0.92em] text-foreground ${className ?? ""}`.trim()}
+          {...rest}
+        >
+          {children}
+        </code>
+      );
+    },
+    pre: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"pre">) => (
+      <pre
+        className={`overflow-x-auto rounded-2xl border border-border/70 bg-muted/40 p-4 text-sm leading-6 ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </pre>
+    ),
+    table: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"table">) => (
+      <div className="my-2 overflow-x-auto rounded-2xl border border-border/70">
+        <table
+          className={`w-full border-collapse text-left text-sm ${className ?? ""}`.trim()}
+          {...rest}
+        >
+          {children}
+        </table>
+      </div>
+    ),
+    thead: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"thead">) => (
+      <thead
+        className={`border-b border-border/70 bg-muted/40 ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </thead>
+    ),
+    tbody: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"tbody">) => (
+      <tbody className={className} {...rest}>
+        {children}
+      </tbody>
+    ),
+    tr: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"tr">) => (
+      <tr
+        className={`border-b border-border/40 last:border-b-0 ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </tr>
+    ),
+    th: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"th">) => (
+      <th
+        className={`px-4 py-2 font-semibold text-foreground ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </th>
+    ),
+    td: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"td">) => (
+      <td
+        className={`px-4 py-2 align-top text-foreground/90 ${className ?? ""}`.trim()}
+        {...rest}
+      >
+        {children}
+      </td>
+    ),
+    a: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"a">) => (
+      <a
+        className={`text-primary underline decoration-primary/40 underline-offset-2 hover:decoration-primary ${className ?? ""}`.trim()}
+        target="_blank"
+        rel="noreferrer noopener"
+        {...rest}
+      >
+        {children}
+      </a>
+    ),
+    hr: ({ node: _node, className, ...rest }: MarkdownComponentProps<"hr">) => (
+      <hr
+        className={`my-6 border-border/60 ${className ?? ""}`.trim()}
+        {...rest}
+      />
+    ),
+    strong: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"strong">) => (
+      <strong className={`font-semibold text-foreground ${className ?? ""}`.trim()} {...rest}>
+        {children}
+      </strong>
+    ),
+    em: ({ node: _node, className, children, ...rest }: MarkdownComponentProps<"em">) => (
+      <em className={className} {...rest}>
+        {children}
+      </em>
+    ),
+  };
 
-  return <div className="space-y-5">{elements}</div>;
+  return (
+    <div className="markdown-response space-y-4 text-[15px] leading-7 text-foreground/90">
+      <ReactMarkdown remarkPlugins={[remarkGfm]} components={components}>
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
 }

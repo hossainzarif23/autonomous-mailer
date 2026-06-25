@@ -1,6 +1,7 @@
 "use client";
 
 import { api, getErrorMessage } from "@/lib/api";
+import { useApprovalStore } from "@/stores/approvalStore";
 import { useChatStore } from "@/stores/chatStore";
 import { useToast } from "@/hooks/use-toast";
 import type { ChatContentBlock, ChatMessage, SSEEvent } from "@/types";
@@ -110,6 +111,42 @@ function mergeApprovalBlocks(
   }
 
   return [buildStatusBlock("Waiting for approval", "pending", fallbackMarkdown), buildMarkdownBlock(fallbackMarkdown)];
+}
+
+async function openPendingDraftIfNeeded(conversationId: string) {
+  // Only open if no modal is already open (avoids stealing focus mid-edit).
+  if (useApprovalStore.getState().isOpen) {
+    return;
+  }
+  try {
+    const response = await api.get<Array<{
+      id: string;
+      conversation_id?: string | null;
+      to: string;
+      subject: string;
+      body: string;
+      draft_type: "reply" | "fresh";
+      status?: string | null;
+      description?: string | null;
+    }>>("/approve/pending");
+    const draft = response.data.find((entry) => entry.conversation_id === conversationId);
+    if (!draft) {
+      return;
+    }
+    useApprovalStore.getState().open({
+      id: draft.id,
+      to: draft.to,
+      subject: draft.subject,
+      body: draft.body,
+      draft_type: draft.draft_type,
+      status: draft.status ?? null,
+      conversation_id: draft.conversation_id ?? null,
+      description: draft.description ?? null
+    });
+  } catch {
+    // Replay is best-effort. If /approve/pending fails, the notification
+    // stream will still surface the approval_required event when it reconnects.
+  }
 }
 
 export function useChat() {
@@ -310,6 +347,53 @@ export function useChat() {
                 }
               })
             });
+          } else if (payload.type === "research_report" && payload.content) {
+            // Surface the parsed research content as a structured block so the
+            // hand-rolled MarkdownResponse (and its react-markdown replacement)
+            // renders it with full markdown fidelity during the live stream.
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
+            const existingBlocks = (currentAssistantMessage?.content_blocks ?? []).filter(
+              (block) => !(block.type === "status" && block.tone === "pending" && (block.label === "Working" || block.label === "Thinking"))
+            );
+            const hasResearch = existingBlocks.some(
+              (block) => block.type === "research_report" && block.tool_call_id === payload.tool_call_id
+            );
+            if (!hasResearch) {
+              const researchBlock: ChatContentBlock = {
+                type: "research_report",
+                title: payload.title ?? "Research Notes",
+                content: payload.content,
+                tool_call_id: payload.tool_call_id ?? null
+              };
+              updateMessage(assistantId, {
+                content: assistantContent,
+                status: "streaming",
+                content_blocks: [...existingBlocks, researchBlock]
+              });
+            }
+          } else if (payload.type === "draft_artifact" && payload.draft) {
+            // Live-update the draft_email block as soon as the mailing agent
+            // produces it, instead of waiting for the history reload.
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
+            const existingBlocks = (currentAssistantMessage?.content_blocks ?? []).filter(
+              (block) => !(block.type === "status" && (block.label === "Working" || block.label === "Thinking"))
+            );
+            const draftBlock: ChatContentBlock = {
+              type: "draft_email",
+              draft_id: "",
+              to: String(payload.draft.to ?? ""),
+              subject: String(payload.draft.subject ?? ""),
+              body_preview: String(payload.draft.body ?? ""),
+              draft_type: (payload.draft.draft_type === "reply" ? "reply" : "fresh"),
+              approval_state: "draft_ready",
+              conversation_id: payload.conversation_id ?? null
+            };
+            const filtered = existingBlocks.filter((block) => block.type !== "draft_email");
+            updateMessage(assistantId, {
+              content: assistantContent,
+              status: "streaming",
+              content_blocks: [...filtered, draftBlock]
+            });
           } else if (payload.type === "approval_blocked") {
             const blockedMessage = payload.content || "Review the pending draft before sending another message in this conversation.";
             const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
@@ -326,6 +410,35 @@ export function useChat() {
             toast({
               title: "Approval Required",
               description: blockedMessage
+            });
+          } else if (payload.type === "approval_required" && payload.draft) {
+            // The request-scoped stream carries the full draft body so the
+            // active tab can open the modal even if the notification EventSource
+            // is dead or reconnecting. The notification broadcast is still
+            // fired for other tabs / devices (see useSSE.ts).
+            didBlockForApproval = true;
+            useApprovalStore.getState().open({
+              id: payload.draft_id ?? payload.draft.id ?? "",
+              to: payload.draft.to,
+              subject: payload.draft.subject,
+              body: payload.draft.body,
+              draft_type: payload.draft.draft_type,
+              status: payload.draft.status,
+              conversation_id: payload.draft.conversation_id ?? payload.conversation_id ?? null,
+              description: payload.description ?? payload.draft.description ?? null
+            });
+            const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
+            updateMessage(assistantId, {
+              content: assistantContent,
+              status: "waiting_approval",
+              content_blocks: mergeApprovalBlocks(
+                currentAssistantMessage?.content_blocks,
+                assistantContent || "A draft is ready and requires human review."
+              ),
+              metadata: {
+                draft_id: payload.draft_id,
+                is_waiting_approval: true
+              }
             });
           } else if (payload.type === "approval_pending") {
             const currentAssistantMessage = useChatStore.getState().messages.find((messageItem) => messageItem.id === assistantId);
@@ -351,6 +464,12 @@ export function useChat() {
               await reloadConversation(conversationId);
               didReloadConversation = true;
             }
+            // Replay: if we ended the stream in a waiting_approval state but
+            // the modal isn't open, query the server for the pending draft.
+            // This recovers from dropped approval_required events (e.g. the
+            // notification EventSource was dead) by going to the source of
+            // truth — the email_drafts table.
+            await openPendingDraftIfNeeded(conversationId);
           } else if (payload.type === "error") {
             const errorText = payload.content || "The chat request failed.";
             updateMessage(assistantId, {

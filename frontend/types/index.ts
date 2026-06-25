@@ -86,6 +86,7 @@ export interface ResearchReportBlock {
   type: "research_report";
   title?: string | null;
   content: string;
+  tool_call_id?: string | null;
 }
 
 export interface DraftEmailBlock {
@@ -136,6 +137,8 @@ export interface SSEEvent {
     | "action_started"
     | "action_completed"
     | "artifact_available"
+    | "research_report"
+    | "draft_artifact"
     | "approval_blocked"
     | "approval_pending"
     | "approval_required"
