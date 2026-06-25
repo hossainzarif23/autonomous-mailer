@@ -36,7 +36,7 @@ Notes:
 - Dependency injection: `Depends(get_db)` for the session, `Depends(get_current_user)` for the authed `User`, `request.app.state.checkpointer` for the LangGraph checkpointer.
 - Pydantic v2 for schemas; SQLAlchemy 2.0 typed `Mapped`/`mapped_column` for models.
 - Memoized agent factories rebuild only when the checkpointer identity changes (it is created during lifespan startup).
-- LangGraph: coordinator thread = `conversation_id`; sub-agent threads are user-scoped (`mail_reader_{user_id}`, etc.). State updates use `Command(update=...)`. HITL via `HumanInTheLoopMiddleware(interrupt_on={"send_email": ...})`; resume via `Command(resume={"decisions": [...]})`.
+- LangGraph: coordinator thread = `conversation_id`; sub-agent threads are scoped per (user, conversation) (e.g. `mail_reader_{user_id}_{conversation_id}`) so that sub-agent state — especially `ToolMessage` history from prior calls — does NOT leak across different conversations of the same user. State updates use `Command(update=...)`. HITL via `HumanInTheLoopMiddleware(interrupt_on={"send_email": ...})`; resume via `Command(resume={"decisions": [...]})`.
 - Uniform error shape `{"error": <ClassName>, "detail": ...}` from `main.py` global handlers.
 - SSE framing: `text/event-stream`, `Cache-Control: no-cache`, `X-Accel-Buffering: no`, `data: {json}\n\n`.
 - Notifications are dual-path: persisted `Notification` rows (list/read API) + in-memory queue broadcast (live SSE).
@@ -60,7 +60,7 @@ Notes:
 - Do not run `uv ...` or `ruff check .` — neither uv nor ruff is set up in this repo.
 - Do not use `unittest` — pytest is the test framework. Async tests use `@pytest.mark.asyncio`.
 - Do not perform the Gmail send (non-idempotent side effect) before the LangGraph `interrupt()` resumes.
-- Do not let sub-agents share the coordinator's conversation-scoped thread; use user-scoped thread IDs.
+- Do not let sub-agents share the coordinator's conversation-scoped thread; use per-(user, conversation) thread IDs so that sub-agent ToolMessage history does not leak across conversations of the same user.
 - Do not rely on `Base.metadata.create_all` as the schema source of truth in production — use Alembic migrations.
 
 ## When Stuck

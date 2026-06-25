@@ -130,7 +130,7 @@ def make_coordinator_tools(checkpointer):
         result = await mail_reader.ainvoke(
             {"messages": [HumanMessage(content=task)]},
             context=runtime.context,
-            config={"configurable": {"thread_id": f"mail_reader_{runtime.context.user_id}"}},
+            config={"configurable": {"thread_id": f"mail_reader_{runtime.context.user_id}_{runtime.context.conversation_id}"}},
         )
         summary = _message_content(result["messages"][-1].content)
         payload = json.dumps(
@@ -153,7 +153,7 @@ def make_coordinator_tools(checkpointer):
         result = await web_search_agent.ainvoke(
             {"messages": [HumanMessage(content=f"Research this topic for an email: {topic}")]},
             context=runtime.context,
-            config={"configurable": {"thread_id": f"search_{runtime.context.user_id}"}},
+            config={"configurable": {"thread_id": f"search_{runtime.context.user_id}_{runtime.context.conversation_id}"}},
         )
         # The web search agent is instructed to return a strict JSON object with
         # `summary` and `sources` keys. Parse it so downstream consumers (state,
@@ -203,7 +203,7 @@ def make_coordinator_tools(checkpointer):
         result = await mailing_agent.ainvoke(
             {"messages": [HumanMessage(content="\n\n".join(part for part in prompt_parts if part))]},
             context=runtime.context,
-            config={"configurable": {"thread_id": f"mailing_{runtime.context.user_id}"}},
+            config={"configurable": {"thread_id": f"mailing_{runtime.context.user_id}_{runtime.context.conversation_id}"}},
         )
         content = _message_content(result["messages"][-1].content)
         draft = _normalize_draft(json.loads(content))
