@@ -81,30 +81,6 @@ def _current_draft_payload(draft: EmailDraft, payload: ApprovalRequest) -> dict:
     }
 
 
-def _feedback_requires_research(feedback: str | None) -> bool:
-    if not feedback:
-        return False
-    lowered = feedback.lower()
-    cues = (
-        "latest",
-        "recent",
-        "current",
-        "up-to-date",
-        "updated data",
-        "new data",
-        "fact-check",
-        "facts",
-        "statistics",
-        "stat",
-        "source",
-        "sources",
-        "trend",
-        "market",
-        "research",
-    )
-    return any(cue in lowered for cue in cues)
-
-
 @router.get("/pending")
 async def list_pending_approvals(
     current_user: User = Depends(get_current_user),
@@ -189,11 +165,6 @@ async def approve_draft(
             update={
                 "current_draft": _current_draft_payload(draft, payload),
                 "draft_feedback": payload.feedback if payload.action == "reject" else None,
-                "needs_research_refresh": (
-                    draft.draft_type == "fresh"
-                    and payload.action == "reject"
-                    and _feedback_requires_research(payload.feedback)
-                ),
             },
         ),
         config={"configurable": {"thread_id": str(draft.conversation_id)}},
@@ -215,6 +186,9 @@ async def approve_draft(
                     notification_service=notification_service,
                 )
 
+    # The send_email tool updates the EmailDraft row to "sent" with the gmail
+    # id when it succeeds. We refresh here so the response reflects the final
+    # status, even if the user was on the "edit" path that doesn't send.
     await db.refresh(draft)
     return ApprovalResponse(
         success=True,

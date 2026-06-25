@@ -22,7 +22,7 @@ python -m app.dev_server
 
 Verification:
 - **Compile check:** `python -m compileall app` (the README's documented check)
-- **Tests:** `python -m unittest discover -s tests` (stdlib `unittest`; pytest is NOT installed)
+- **Tests:** `pytest` (latest pytest is installed in the venv; run from `backend/`)
 - **Health:** `GET http://localhost:8000/health`
 
 Notes:
@@ -43,10 +43,8 @@ Notes:
 - Google OAuth tokens are Fernet-encrypted at rest in the `users` table.
 
 ## Testing
-- Framework: stdlib `unittest` (`TestCase`/`IsolatedAsyncioTestCase`). **pytest is NOT installed**; there is no `pytest.ini`/`conftest.py`.
-- Run: `python -m unittest discover -s tests` (from `backend/`).
-- Existing passing tests: `test_auth_service.py`, `test_email_parser.py`, `test_gmail_service.py`, `test_notification_service.py` (pure-function/service unit tests with mocks/fakes).
-- `test_agent_factories.py` and `test_agent_tools.py` are **stale and broken** — they reference functions that no longer exist after a refactor (`get_mailing_draft_agent`, `fresh_email_routing`, `prepare_fresh_email_with_research`, `compose_and_request_approval`). Fix or delete these when touching agent code.
+- Framework: **pytest 9.x** (latest; installed in the venv). `pytest-asyncio` is also installed; async tests use `@pytest.mark.asyncio`. There is a `tests/conftest.py` that puts `backend/` on `sys.path`.
+- Run: `pytest` (from `backend/`).
 - No router/integration/DB/LangGraph-workflow tests exist yet.
 
 ## Do
@@ -60,7 +58,7 @@ Notes:
 ## Don't
 - Do not move auth, Gmail, or orchestration logic into the Next.js frontend.
 - Do not run `uv ...` or `ruff check .` — neither uv nor ruff is set up in this repo.
-- Do not assume pytest is available — use stdlib `unittest`.
+- Do not use `unittest` — pytest is the test framework. Async tests use `@pytest.mark.asyncio`.
 - Do not perform the Gmail send (non-idempotent side effect) before the LangGraph `interrupt()` resumes.
 - Do not let sub-agents share the coordinator's conversation-scoped thread; use user-scoped thread IDs.
 - Do not rely on `Base.metadata.create_all` as the schema source of truth in production — use Alembic migrations.

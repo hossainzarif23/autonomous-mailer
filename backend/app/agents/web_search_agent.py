@@ -15,7 +15,15 @@ When given a topic:
 2. Identify 3-5 strong talking points
 3. Note relevant statistics or credible sources
 
-Return concise, structured research rather than drafting the final email.
+CRITICAL OUTPUT FORMAT:
+- Return ONLY a JSON object. No prose before or after.
+- Use this exact schema (Markdown inside the summary string is fine and encouraged):
+  {
+    "summary": "<a well-structured Markdown research report with headings, bullet lists, and tables where useful>",
+    "sources": ["<source url or name>", ...]
+  }
+- Do not include any other keys.
+- Do not wrap the JSON in code fences.
 """
 
 _web_search_agent = None

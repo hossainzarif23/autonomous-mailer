@@ -4,7 +4,7 @@ import json
 from typing import Any, Dict
 
 from langchain.agents import AgentState, create_agent
-from langchain.agents.middleware import HumanInTheLoopMiddleware, dynamic_prompt
+from langchain.agents.middleware import HumanInTheLoopMiddleware
 from langchain.tools import ToolRuntime, tool
 from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage, ToolCall
 from langgraph.types import Command
@@ -22,7 +22,6 @@ class EmailAgentState(AgentState):
     current_draft = Dict[str, Any] | None
     research_summary = str | None
     draft_feedback = str | None
-    needs_research_refresh = bool
 
 COORDINATOR_SYSTEM_PROMPT = """
 You are the central coordinator of an email assistant system. Understand the user's request
@@ -52,26 +51,6 @@ Critical workflow rules:
 """
 
 
-@dynamic_prompt
-def coordinator_prompt(runtime: ToolRuntime) -> str:
-    state = runtime.state
-    draft = state.get("current_draft")
-    feedback = state.get("draft_feedback")
-    needs_research_refresh = state.get("needs_research_refresh")
-    research_summary = state.get("research_summary")
-
-    sections = [COORDINATOR_SYSTEM_PROMPT.strip()]
-    if draft:
-        sections.append(f"Current draft in state:\n{json.dumps(draft)}")
-    if feedback:
-        sections.append(f"Latest human feedback:\n{feedback}")
-    if research_summary:
-        sections.append(f"Stored research summary:\n{research_summary}")
-    if needs_research_refresh:
-        sections.append("The current feedback likely requires refreshed or expanded research before the next draft.")
-    return "\n\n".join(sections)
-
-
 def _message_content(value) -> str:
     if isinstance(value, str):
         return value
@@ -88,12 +67,7 @@ def _send_email_review_description(
 ) -> str:
     draft = state.get("current_draft") or tool_call.get("args", {})
     draft_type = str(draft.get("draft_type") or "fresh")
-    return (
-        f"Review this {draft_type} email before sending.\n\n"
-        f"To: {draft.get('to', '')}\n"
-        f"Subject: {draft.get('subject', '')}\n\n"
-        f"{draft.get('body', '')}"
-    )
+    return f"Review this {draft_type} email before sending."
 
 
 def _tool_message(tool_name: str, content: str, tool_call_id: str | None) -> ToolMessage:
@@ -181,17 +155,29 @@ def make_coordinator_tools(checkpointer):
             context=runtime.context,
             config={"configurable": {"thread_id": f"search_{runtime.context.user_id}"}},
         )
-        summary = _message_content(result["messages"][-1].content)
+        # The web search agent is instructed to return a strict JSON object with
+        # `summary` and `sources` keys. Parse it so downstream consumers (state,
+        # ToolMessage, frontend) get the Markdown report directly rather than a
+        # JSON-encoded string.
+        raw_content = _message_content(result["messages"][-1].content)
+        summary_text = raw_content
+        try:
+            parsed = json.loads(raw_content)
+            if isinstance(parsed, dict) and isinstance(parsed.get("summary"), str):
+                summary_text = parsed["summary"]
+        except (json.JSONDecodeError, ValueError):
+            # Sub-agent fell back to prose; treat the whole response as the summary
+            # so the frontend still has something renderable.
+            summary_text = raw_content
         payload = json.dumps(
             {
-                "summary": summary,
+                "summary": summary_text,
                 "tool_outputs": _subagent_tool_outputs(result["messages"]),
             }
         )
         return Command(
             update={
-                "research_summary": summary,
-                "needs_research_refresh": False,
+                "research_summary": summary_text,
                 "messages": [
                     _tool_message("call_web_search", payload, runtime.tool_call_id)
                 ],
@@ -250,7 +236,6 @@ def get_coordinator_agent(checkpointer):
             context_schema=AgentContext,
             checkpointer=checkpointer,
             middleware=[
-                coordinator_prompt,
                 HumanInTheLoopMiddleware(
                     interrupt_on={
                         "send_email": {

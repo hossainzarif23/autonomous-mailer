@@ -165,7 +165,7 @@ sequenceDiagram
   Coord->>Notify: persist + broadcast email_sent/error
 ```
 
-Rejecting a draft marks it `rejected`, broadcasts `email_rejected`, and resumes the same LangGraph thread with feedback. For fresh-email drafts, feedback containing research cues sets `needs_research_refresh`.
+Rejecting a draft marks it `rejected`, broadcasts `email_rejected`, and resumes the same LangGraph thread with feedback. The coordinator reads the feedback from the rejection `ToolMessage` and `state.draft_feedback` and decides whether to re-run web search based on the static `COORDINATOR_SYSTEM_PROMPT` rule (no precomputed flag).
 
 ### History Reconstruction
 
