@@ -1,69 +1,68 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
-from unittest import IsolatedAsyncioTestCase, TestCase
 from unittest.mock import patch
 
-from langchain_core.messages import AIMessage, HumanMessage
+import pytest
 
 from app.agents import coordinator, mail_reader_agent, mailing_agent
 
 
-class AgentFactoryTests(TestCase):
-    def test_mail_reader_agent_factory_uses_create_agent(self):
-        mail_reader_agent._mail_reader_agent = None
-        mail_reader_agent._mail_reader_checkpointer_id = None
-
-        with patch("app.agents.mail_reader_agent.create_agent", return_value="mail-reader") as create_agent_mock:
-            with patch("app.agents.mail_reader_agent.get_llm", return_value="llm"):
-                agent = mail_reader_agent.get_mail_reader_agent()
-
-        self.assertEqual(agent, "mail-reader")
-        self.assertTrue(create_agent_mock.called)
-
-    def test_coordinator_factory_uses_create_agent(self):
-        coordinator._coordinator_agent = None
-        coordinator._coordinator_checkpointer_id = None
-
-        with patch("app.agents.coordinator.create_agent", return_value="coordinator-agent") as create_agent_mock:
-            with patch("app.agents.coordinator.get_llm", return_value="llm"):
-                with patch("app.agents.coordinator.make_coordinator_tools", return_value=["tool-a", "tool-b"]):
-                    agent = coordinator.get_coordinator_agent(checkpointer=None)
-
-        self.assertEqual(agent, "coordinator-agent")
-        self.assertTrue(create_agent_mock.called)
-
-    def test_mailing_draft_agent_factory_uses_create_agent(self):
-        mailing_agent._mailing_draft_agent = None
-        mailing_agent._mailing_draft_checkpointer_id = None
-
-        with patch("app.agents.mailing_agent.create_agent", return_value="mailing-draft-agent") as create_agent_mock:
-            with patch("app.agents.mailing_agent.get_llm", return_value="llm"):
-                agent = mailing_agent.get_mailing_draft_agent()
-
-        self.assertEqual(agent, "mailing-draft-agent")
-        self.assertTrue(create_agent_mock.called)
+@pytest.fixture(autouse=True)
+def _reset_agent_cache():
+    """Each test rebuilds the agent; clear the module-level cache first."""
+    coordinator._coordinator_agent = None
+    coordinator._coordinator_checkpointer_id = None
+    mail_reader_agent._mail_reader_agent = None
+    mail_reader_agent._mail_reader_checkpointer_id = None
+    mailing_agent._mailing_agent = None
+    mailing_agent._mailing_checkpointer_id = None
+    yield
 
 
-class AgentMiddlewareTests(IsolatedAsyncioTestCase):
-    async def test_fresh_email_routing_short_circuits_to_coordinator_tool_call(self):
-        request = SimpleNamespace(
-            messages=[
-                HumanMessage(
-                    content="Write a fresh email to ceo@example.com about AI trends in Bangladesh."
-                )
-            ]
-        )
+def test_mail_reader_agent_factory_uses_create_agent():
+    with (
+        patch("app.agents.mail_reader_agent.create_agent", return_value="mail-reader") as create_agent_mock,
+        patch("app.agents.mail_reader_agent.get_llm", return_value="llm"),
+    ):
+        agent = mail_reader_agent.get_mail_reader_agent()
 
-        handler_called = False
+    assert agent == "mail-reader"
+    assert create_agent_mock.called
 
-        async def handler(_request):
-            nonlocal handler_called
-            handler_called = True
-            return None
 
-        response = await coordinator.fresh_email_routing.awrap_model_call(request, handler)
+def test_mailing_agent_factory_uses_create_agent():
+    with (
+        patch("app.agents.mailing_agent.create_agent", return_value="mailing-agent") as create_agent_mock,
+        patch("app.agents.mailing_agent.get_llm", return_value="llm"),
+    ):
+        agent = mailing_agent.get_mailing_agent()
 
-        self.assertFalse(handler_called)
-        self.assertIsInstance(response, AIMessage)
-        self.assertEqual(response.tool_calls[0]["name"], "prepare_fresh_email_with_research")
+    assert agent == "mailing-agent"
+    assert create_agent_mock.called
+
+
+def test_coordinator_factory_uses_create_agent_without_dynamic_prompt():
+    import types
+
+    with (
+        patch("app.agents.coordinator.create_agent", return_value="coordinator-agent") as create_agent_mock,
+        patch("app.agents.coordinator.get_llm", return_value="llm"),
+        patch("app.agents.coordinator.make_coordinator_tools", return_value=["tool-a", "tool-b"]),
+    ):
+        agent = coordinator.get_coordinator_agent(checkpointer=None)
+
+    assert agent == "coordinator-agent"
+    assert create_agent_mock.called
+    # The cleanup pass removed the @dynamic_prompt middleware. The only
+    # remaining middleware must be the HITL one — a class instance, not a
+    # plain function.
+    middleware = create_agent_mock.call_args.kwargs["middleware"]
+    assert len(middleware) == 1
+    assert not isinstance(middleware[0], types.FunctionType)
+
+
+def test_coordinator_state_schema_drops_needs_research_refresh():
+    assert hasattr(coordinator.EmailAgentState, "current_draft")
+    assert hasattr(coordinator.EmailAgentState, "research_summary")
+    assert hasattr(coordinator.EmailAgentState, "draft_feedback")
+    assert not hasattr(coordinator.EmailAgentState, "needs_research_refresh")

@@ -1,25 +1,23 @@
 from __future__ import annotations
 
-import asyncio
-from unittest import IsolatedAsyncioTestCase, TestCase
+import pytest
 
 from app.services.gmail_service import GmailService
 
 
-class GmailServiceQueryTests(TestCase):
-    def test_build_query_combines_supported_filters(self):
-        service = GmailService.__new__(GmailService)
-        query = service._build_query(sender="alerts@example.com", topic="invoice", query="label:inbox")
-        self.assertIn("from:alerts@example.com", query)
-        self.assertIn("subject:(invoice) OR (invoice)", query)
-        self.assertIn("label:inbox", query)
+def test_build_query_combines_supported_filters():
+    service = GmailService.__new__(GmailService)
+    query = service._build_query(sender="alerts@example.com", topic="invoice", query="label:inbox")
+    assert "from:alerts@example.com" in query
+    assert "subject:(invoice) OR (invoice)" in query
+    assert "label:inbox" in query
 
 
 class _FakeMessagesResource:
     def __init__(self):
         self.sent_payload = None
 
-    def send(self, userId: str, body: dict):
+    def send(self, userId, body):
         self.sent_payload = {"userId": userId, "body": body}
         return self
 
@@ -43,22 +41,21 @@ class _FakeGmailApi:
         return self.users_resource
 
 
-class GmailServiceSendTests(IsolatedAsyncioTestCase):
-    async def test_send_email_includes_threading_metadata(self):
-        service = GmailService.__new__(GmailService)
-        service.service = _FakeGmailApi()
+@pytest.mark.asyncio
+async def test_send_email_includes_threading_metadata():
+    service = GmailService.__new__(GmailService)
+    service.service = _FakeGmailApi()
 
-        gmail_id = await service.send_email(
-            to="ceo@example.com",
-            subject="RE: Update",
-            body="Thanks for the note.",
-            in_reply_to="<message@example.com>",
-            thread_id="thread-123",
-        )
+    gmail_id = await service.send_email(
+        to="ceo@example.com",
+        subject="RE: Update",
+        body="Thanks for the note.",
+        in_reply_to="<message@example.com>",
+        thread_id="thread-123",
+    )
 
-        sent = service.service.users().messages().sent_payload
-        self.assertEqual(gmail_id, "gmail-message-123")
-        self.assertEqual(sent["userId"], "me")
-        self.assertEqual(sent["body"]["threadId"], "thread-123")
-        self.assertIn("raw", sent["body"])
-
+    sent = service.service.users().messages().sent_payload
+    assert gmail_id == "gmail-message-123"
+    assert sent["userId"] == "me"
+    assert sent["body"]["threadId"] == "thread-123"
+    assert "raw" in sent["body"]

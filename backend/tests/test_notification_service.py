@@ -1,26 +1,27 @@
 from __future__ import annotations
 
-from unittest import IsolatedAsyncioTestCase
+import pytest
 
 from app.services.notification_service import NotificationService
 
 
-class NotificationServiceTests(IsolatedAsyncioTestCase):
-    async def test_broadcast_delivers_events_to_subscribers(self):
-        service = NotificationService()
-        queue = service.subscribe("user-1")
+@pytest.mark.asyncio
+async def test_broadcast_delivers_events_to_subscribers():
+    service = NotificationService()
+    queue = service.subscribe("user-1")
 
-        await service.broadcast("user-1", {"type": "email_sent"})
-        event = await queue.get()
+    await service.broadcast("user-1", {"type": "email_sent"})
+    event = await queue.get()
 
-        self.assertEqual(event["type"], "email_sent")
+    assert event["type"] == "email_sent"
 
-    async def test_unsubscribe_stops_future_delivery(self):
-        service = NotificationService()
-        queue = service.subscribe("user-1")
-        service.unsubscribe("user-1", queue)
 
-        await service.broadcast("user-1", {"type": "ignored"})
+@pytest.mark.asyncio
+async def test_unsubscribe_stops_future_delivery():
+    service = NotificationService()
+    queue = service.subscribe("user-1")
+    service.unsubscribe("user-1", queue)
 
-        self.assertTrue(queue.empty())
+    await service.broadcast("user-1", {"type": "ignored"})
 
+    assert queue.empty()
