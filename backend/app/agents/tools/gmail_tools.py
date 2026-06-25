@@ -57,7 +57,7 @@ async def get_emails(
     count: int = 5,
     runtime: ToolRuntime[AgentContext] = None,
 ) -> str:
-    """Fetch the user's most recent emails, optionally filtered by sender or topic.
+    """Fetch the user's most recent emails. When the user names a sender, you MUST pass it via the `sender` parameter as a Gmail search term (e.g. "linkedin.com" or "alice@x.com"). Never retry without the filter if it returns 0 results — report the empty result instead of substituting other emails.
 
     Args:
         sender: If provided, restrict to emails from this sender (e.g. "Alice" or "alice@x.com").
@@ -70,10 +70,7 @@ async def get_emails(
     """
     gmail = runtime.context.gmail_service
     query = gmail._build_query(sender=sender, topic=topic)
-    if query:
-        emails = await gmail.list_messages(query=query, max_results=10)
-    else:
-        emails = await gmail.list_messages(max_results=max(1, min(count, 20)))
+    emails = await gmail.list_messages(query=query, max_results=max(1, min(count, 20)))
     return _format_email_list(emails)
 
 

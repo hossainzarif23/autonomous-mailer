@@ -236,28 +236,38 @@ def _parse_mail_reader_payload(content: str) -> tuple[str, list[dict[str, Any]],
     summary = str(payload.get("summary") or "").strip()
     title: str | None = None
     emails: list[dict[str, Any]] = []
+    parsed_get_full_email: str | None = None
+    # The sub-agent may call `get_emails` multiple times while iterating
+    # toward the answer (e.g. retrying with a different filter, or fetching
+    # individual messages with `get_full_email`). The LAST successful
+    # `get_emails` output reflects the agent's final answer; intermediate
+    # fetches and `get_full_email` calls don't change which list of emails
+    # the user sees. Use the last one, not the first.
     for output in payload.get("tool_outputs", []):
         if not isinstance(output, dict):
             continue
         name = str(output.get("name") or "")
         raw_output = str(output.get("content") or "")
+        if name == "get_full_email" and raw_output.strip():
+            parsed_get_full_email = raw_output.strip()
+            continue
         parsed = _parse_email_entries(raw_output)
         if parsed:
             emails = parsed
-            if name == "get_recent_emails":
-                title = "Recent Emails"
-            elif name == "search_emails_by_sender":
-                title = "Emails From Sender"
-            elif name == "search_emails_by_topic":
-                title = "Topic Search Results"
-            elif name == "get_email_thread":
+            if name == "get_email_thread":
                 title = "Thread Messages"
             else:
                 title = "Email Results"
-            break
-        if name == "get_full_email" and raw_output.strip():
-            title = "Email Detail"
-            summary = summary or raw_output.strip()
+
+    if emails:
+        if title is None:
+            title = "Email Results"
+    elif parsed_get_full_email:
+        title = "Email Detail"
+        summary = summary or parsed_get_full_email
+    else:
+        summary = summary or "No matching emails were found."
+        title = None
 
     return summary, emails, title
 
