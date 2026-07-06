@@ -1,0 +1,1141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Agentic Pipeline — Autonomous Email Agent</title>
+  <style>
+    :root {
+      --bg: #0b1020;
+      --bg-2: #0f172a;
+      --surface: #ffffff;
+      --surface-soft: #f1f5f9;
+      --ink: #0b1220;
+      --ink-soft: #1f2a44;
+      --muted: #64748b;
+      --muted-2: #94a3b8;
+      --line: #e2e8f0;
+      --line-2: #cbd5e1;
+
+      --blue: #2563eb;
+      --indigo: #4f46e5;
+      --violet: #7c3aed;
+      --teal: #0f766e;
+      --cyan: #0891b2;
+      --amber: #b45309;
+      --orange: #c2410c;
+      --green: #15803d;
+      --emerald: #059669;
+      --rose: #be123c;
+      --pink: #be185d;
+
+      --grad-1: linear-gradient(135deg, #2563eb 0%, #7c3aed 50%, #db2777 100%);
+      --grad-2: linear-gradient(135deg, #0ea5e9 0%, #6366f1 100%);
+      --grad-3: linear-gradient(135deg, #14b8a6 0%, #0891b2 100%);
+      --grad-4: linear-gradient(135deg, #f59e0b 0%, #ef4444 100%);
+
+      --shadow-sm: 0 4px 14px rgba(15, 23, 42, 0.06);
+      --shadow: 0 12px 32px rgba(15, 23, 42, 0.08);
+      --shadow-lg: 0 28px 70px rgba(15, 23, 42, 0.18);
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { margin: 0; padding: 0; }
+
+    body {
+      background:
+        radial-gradient(1100px 600px at 8% -8%, rgba(124, 58, 237, 0.18), transparent 60%),
+        radial-gradient(900px 500px at 96% 6%, rgba(14, 165, 233, 0.18), transparent 60%),
+        radial-gradient(1200px 700px at 50% 110%, rgba(217, 70, 239, 0.12), transparent 60%),
+        linear-gradient(180deg, #0b1020 0%, #0b1020 100%);
+      color: #e2e8f0;
+      font-family: "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-rendering: optimizeLegibility;
+    }
+
+    a { color: #93c5fd; text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code {
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      border-radius: 6px;
+      background: rgba(15, 23, 42, 0.6);
+      color: #e0e7ff;
+      padding: 0.06rem 0.36rem;
+      font-family: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 0.85em;
+    }
+
+    main {
+      width: min(1240px, calc(100% - 40px));
+      margin: 0 auto;
+      padding: 56px 0 96px;
+    }
+
+    /* ===== Hero ===== */
+    .hero {
+      display: grid;
+      grid-template-columns: minmax(0, 1.4fr) minmax(280px, 0.6fr);
+      gap: 28px;
+      margin-bottom: 40px;
+    }
+    @media (max-width: 900px) { .hero { grid-template-columns: 1fr; } }
+
+    .hero-copy {
+      padding: 44px;
+      border-radius: 28px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      box-shadow: var(--shadow-lg);
+      backdrop-filter: blur(8px);
+    }
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      margin: 0 0 18px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(124, 58, 237, 0.12);
+      border: 1px solid rgba(167, 139, 250, 0.35);
+      color: #c4b5fd;
+      font-size: 0.74rem;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+    .eyebrow .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+      background: var(--grad-1);
+      box-shadow: 0 0 12px rgba(167, 139, 250, 0.6);
+    }
+    h1 {
+      margin: 0;
+      color: #f8fafc;
+      font-size: clamp(2.2rem, 4.4vw, 3.6rem);
+      line-height: 1.02;
+      letter-spacing: -0.02em;
+    }
+    h1 .grad {
+      background: var(--grad-1);
+      -webkit-background-clip: text;
+      background-clip: text;
+      color: transparent;
+    }
+    .lead {
+      max-width: 760px;
+      margin: 18px 0 0;
+      color: #cbd5e1;
+      font-size: 1.06rem;
+    }
+    .meta-row {
+      display: flex; flex-wrap: wrap; gap: 8px;
+      margin-top: 22px;
+    }
+    .chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.55);
+      border: 1px solid rgba(148, 163, 184, 0.25);
+      color: #e2e8f0;
+      font-size: 0.78rem;
+      font-weight: 600;
+    }
+    .chip .swatch { width: 8px; height: 8px; border-radius: 50%; }
+    .chip.s-blue .swatch { background: #60a5fa; }
+    .chip.s-violet .swatch { background: #a78bfa; }
+    .chip.s-teal .swatch { background: #2dd4bf; }
+    .chip.s-amber .swatch { background: #fbbf24; }
+    .chip.s-rose .swatch { background: #fb7185; }
+    .chip.s-green .swatch { background: #34d399; }
+
+    .hero-side {
+      display: grid;
+      grid-template-rows: auto 1fr;
+      gap: 14px;
+    }
+    .stats {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+    .stat {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .stat .n {
+      display: block;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #f8fafc;
+      letter-spacing: -0.01em;
+    }
+    .stat .l {
+      display: block;
+      margin-top: 2px;
+      color: #94a3b8;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .legend {
+      padding: 16px;
+      border-radius: 18px;
+      background: rgba(15, 23, 42, 0.7);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      display: grid;
+      gap: 8px;
+    }
+    .legend h3 {
+      margin: 0 0 4px;
+      color: #f1f5f9;
+      font-size: 0.82rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+    .legend .row { display: flex; align-items: center; gap: 10px; color: #cbd5e1; font-size: 0.86rem; }
+    .legend .swatch { width: 14px; height: 14px; border-radius: 4px; flex: 0 0 14px; }
+
+    /* ===== Section ===== */
+    section { margin: 36px 0; }
+    .section-head {
+      display: flex; justify-content: space-between; gap: 20px; align-items: end;
+      margin: 0 0 16px;
+    }
+    h2 {
+      margin: 0;
+      color: #f8fafc;
+      font-size: 1.6rem;
+      letter-spacing: -0.01em;
+    }
+    .section-note {
+      max-width: 560px;
+      margin: 0;
+      color: #94a3b8;
+      font-size: 0.94rem;
+    }
+    .section-num {
+      display: inline-block;
+      margin-right: 10px;
+      color: #7c3aed;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-weight: 700;
+    }
+
+    .panel {
+      border-radius: 22px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.04), rgba(255,255,255,0.02));
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .panel-head {
+      padding: 18px 24px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.18);
+      display: flex; align-items: center; justify-content: space-between; gap: 16px;
+      background: rgba(15, 23, 42, 0.5);
+    }
+    .panel-title { color: #f1f5f9; font-size: 1.02rem; font-weight: 700; }
+    .panel-sub { color: #94a3b8; font-size: 0.84rem; }
+    .panel-body { padding: 22px; }
+
+    .diagram-wrap {
+      padding: 22px;
+      background:
+        radial-gradient(900px 500px at 50% -10%, rgba(99, 102, 241, 0.15), transparent 60%),
+        linear-gradient(180deg, #0b1220, #0f172a);
+    }
+    svg { display: block; width: 100%; height: auto; }
+    svg text { font-family: "Inter", ui-sans-serif, system-ui, sans-serif; }
+    svg .mono { font-family: "JetBrains Mono", ui-monospace, monospace; }
+
+    /* ===== Layout grids ===== */
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+    .grid-3 { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+    .grid-4 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    @media (max-width: 980px) { .grid-2, .grid-3, .grid-4 { grid-template-columns: 1fr; } }
+
+    /* ===== Cards ===== */
+    .card {
+      padding: 18px;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+    .card .label {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      font-size: 0.7rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      font-weight: 700;
+    }
+    .label.coord { background: rgba(124, 58, 237, 0.18); color: #c4b5fd; border: 1px solid rgba(167, 139, 250, 0.4); }
+    .label.read  { background: rgba(14, 165, 233, 0.18); color: #7dd3fc; border: 1px solid rgba(56, 189, 248, 0.4); }
+    .label.send  { background: rgba(20, 184, 166, 0.18); color: #5eead4; border: 1px solid rgba(45, 212, 191, 0.4); }
+    .label.web   { background: rgba(245, 158, 11, 0.18); color: #fcd34d; border: 1px solid rgba(251, 191, 36, 0.4); }
+    .label.hitl  { background: rgba(244, 63, 94, 0.18); color: #fda4af; border: 1px solid rgba(251, 113, 133, 0.4); }
+    .label.tool  { background: rgba(99, 102, 241, 0.18); color: #a5b4fc; border: 1px solid rgba(129, 140, 248, 0.4); }
+    .label.svc   { background: rgba(34, 197, 94, 0.18); color: #86efac; border: 1px solid rgba(74, 222, 128, 0.4); }
+    .label.ext   { background: rgba(148, 163, 184, 0.2); color: #cbd5e1; border: 1px solid rgba(203, 213, 225, 0.4); }
+
+    .card h3 { margin: 10px 0 6px; color: #f1f5f9; font-size: 1.02rem; }
+    .card p { margin: 0; color: #cbd5e1; font-size: 0.92rem; }
+    .card ul { margin: 10px 0 0; padding: 0 0 0 18px; color: #cbd5e1; font-size: 0.9rem; }
+    .card ul li { margin: 4px 0; }
+
+    .card .ico {
+      width: 36px; height: 36px;
+      display: inline-grid; place-items: center;
+      border-radius: 10px;
+      margin-bottom: 8px;
+      background: rgba(99, 102, 241, 0.15);
+      border: 1px solid rgba(129, 140, 248, 0.35);
+      color: #c7d2fe;
+    }
+
+    /* ===== Tool table ===== */
+    .tools {
+      display: grid;
+      grid-template-columns: 1.05fr 0.7fr 0.7fr 1.55fr;
+      gap: 0;
+      border-radius: 16px;
+      overflow: hidden;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+    }
+    .tools .h, .tools .r {
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(148, 163, 184, 0.12);
+      font-size: 0.9rem;
+      color: #e2e8f0;
+    }
+    .tools .h {
+      background: rgba(15, 23, 42, 0.7);
+      color: #f1f5f9;
+      font-weight: 700;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+    .tools .r:nth-child(8n) { border-bottom: none; }
+    .tools .name { font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 0.86rem; color: #a5b4fc; }
+    .tools .owner { font-size: 0.82rem; color: #cbd5e1; }
+    .tools .where { font-size: 0.82rem; color: #cbd5e1; }
+    .tools .desc { color: #cbd5e1; }
+    @media (max-width: 900px) {
+      .tools { grid-template-columns: 1fr; }
+      .tools .h { display: none; }
+      .tools .r { display: grid; grid-template-columns: 1fr; gap: 4px; padding: 12px 16px; }
+    }
+
+    /* ===== Sequence ===== */
+    .seq {
+      padding: 22px;
+      display: grid; gap: 8px;
+      background: linear-gradient(180deg, #0b1220, #0f172a);
+    }
+    .seq .lane {
+      display: grid;
+      grid-template-columns: 120px 1fr;
+      gap: 12px;
+      align-items: stretch;
+    }
+    .seq .who {
+      align-self: start;
+      padding: 8px 10px;
+      border-radius: 10px;
+      background: rgba(15, 23, 42, 0.8);
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: #e2e8f0;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-align: center;
+      letter-spacing: 0.04em;
+    }
+    .seq .who.fe { background: linear-gradient(135deg, rgba(99,102,241,0.25), rgba(124,58,237,0.25)); border-color: rgba(167,139,250,0.4); }
+    .seq .who.be { background: linear-gradient(135deg, rgba(14,165,233,0.25), rgba(8,145,178,0.25)); border-color: rgba(56,189,248,0.4); }
+    .seq .who.ag { background: linear-gradient(135deg, rgba(20,184,166,0.25), rgba(5,150,105,0.25)); border-color: rgba(45,212,191,0.4); }
+    .seq .who.db { background: linear-gradient(135deg, rgba(245,158,11,0.25), rgba(217,119,6,0.25)); border-color: rgba(251,191,36,0.4); }
+    .seq .who.gm { background: linear-gradient(135deg, rgba(244,63,94,0.25), rgba(190,18,60,0.25)); border-color: rgba(251,113,133,0.4); }
+    .seq .who.lm { background: linear-gradient(135deg, rgba(148,163,184,0.2), rgba(100,116,139,0.2)); border-color: rgba(203,213,225,0.4); }
+
+    .seq .msg {
+      position: relative;
+      padding: 10px 14px;
+      border-radius: 12px;
+      background: rgba(15, 23, 42, 0.6);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+      color: #e2e8f0;
+      font-size: 0.88rem;
+    }
+    .seq .msg .meta { color: #94a3b8; font-size: 0.76rem; }
+    .seq .msg.hitl { background: linear-gradient(135deg, rgba(244,63,94,0.18), rgba(190,18,60,0.18)); border-color: rgba(251,113,133,0.4); }
+    .seq .msg.tool { background: linear-gradient(135deg, rgba(99,102,241,0.18), rgba(79,70,229,0.18)); border-color: rgba(129,140,248,0.4); }
+    .seq .msg.ok { background: linear-gradient(135deg, rgba(20,184,166,0.18), rgba(5,150,105,0.18)); border-color: rgba(45,212,191,0.4); }
+    .seq .msg.warn { background: linear-gradient(135deg, rgba(245,158,11,0.18), rgba(217,119,6,0.18)); border-color: rgba(251,191,36,0.4); }
+    .seq .msg .arrow { color: #94a3b8; font-family: "JetBrains Mono", monospace; font-size: 0.78rem; }
+    .seq .spacer { height: 6px; }
+
+    /* ===== Steps / Flow ===== */
+    .steps {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 12px;
+    }
+    @media (max-width: 980px) { .steps { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 620px) { .steps { grid-template-columns: 1fr; } }
+    .step {
+      position: relative;
+      padding: 18px;
+      border-radius: 16px;
+      background: rgba(15, 23, 42, 0.65);
+      border: 1px solid rgba(148, 163, 184, 0.18);
+    }
+    .step .n {
+      display: inline-block;
+      width: 28px; height: 28px;
+      line-height: 28px;
+      text-align: center;
+      border-radius: 8px;
+      font-weight: 800;
+      color: #f8fafc;
+      background: var(--grad-2);
+      margin-bottom: 8px;
+    }
+    .step h4 { margin: 0 0 6px; color: #f1f5f9; font-size: 0.98rem; }
+    .step p { margin: 0; color: #cbd5e1; font-size: 0.88rem; }
+
+    /* ===== Code block ===== */
+    pre.code {
+      margin: 0;
+      padding: 18px 20px;
+      border-radius: 16px;
+      background: #0a0f1e;
+      border: 1px solid rgba(148, 163, 184, 0.2);
+      color: #e2e8f0;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 0.84rem;
+      line-height: 1.6;
+      overflow-x: auto;
+    }
+    pre.code .c { color: #64748b; }
+    pre.code .k { color: #f0abfc; }
+    pre.code .s { color: #86efac; }
+    pre.code .n { color: #93c5fd; }
+    pre.code .f { color: #fcd34d; }
+
+    /* ===== Footer ===== */
+    footer {
+      margin-top: 56px;
+      padding: 22px 0;
+      color: #94a3b8;
+      font-size: 0.84rem;
+      text-align: center;
+      border-top: 1px solid rgba(148, 163, 184, 0.15);
+    }
+
+    /* utilities */
+    .row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+    .pill {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 3px 9px;
+      border-radius: 999px;
+      background: rgba(99, 102, 241, 0.18);
+      border: 1px solid rgba(129, 140, 248, 0.4);
+      color: #c7d2fe;
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+    .pill.amber { background: rgba(245, 158, 11, 0.18); border-color: rgba(251, 191, 36, 0.4); color: #fcd34d; }
+    .pill.rose  { background: rgba(244, 63, 94, 0.18); border-color: rgba(251, 113, 133, 0.4); color: #fda4af; }
+    .pill.teal  { background: rgba(20, 184, 166, 0.18); border-color: rgba(45, 212, 191, 0.4); color: #5eead4; }
+    .pill.blue  { background: rgba(59, 130, 246, 0.18); border-color: rgba(96, 165, 250, 0.4); color: #bfdbfe; }
+    .pill.gray  { background: rgba(148, 163, 184, 0.18); border-color: rgba(203, 213, 225, 0.4); color: #e2e8f0; }
+  </style>
+</head>
+<body>
+<main>
+
+  <!-- ============== HERO ============== -->
+  <header class="hero">
+    <div class="hero-copy">
+      <span class="eyebrow"><span class="dot"></span>Agentic Pipeline · Deep Dive</span>
+      <h1>The <span class="grad">AI Agentic Pipeline</span><br/>behind the Autonomous Email Agent</h1>
+      <p class="lead">
+        A multi-agent system built on LangChain <code>create_agent</code> + LangGraph, orchestrated by a
+        coordinator that routes intent to specialized sub-agents, calls tools against Gmail and the web,
+        and pauses at the final <code>send_email</code> step for native human-in-the-loop approval.
+        State is checkpointed in Postgres so any graph — including interrupted ones — can resume.
+      </p>
+      <div class="meta-row">
+        <span class="chip s-violet"><span class="swatch"></span>Coordinator agent</span>
+        <span class="chip s-blue"><span class="swatch"></span>Mail Reader sub-agent</span>
+        <span class="chip s-teal"><span class="swatch"></span>Mailing sub-agent</span>
+        <span class="chip s-amber"><span class="swatch"></span>Web Search sub-agent</span>
+        <span class="chip s-rose"><span class="swatch"></span>HITL interrupt</span>
+        <span class="chip s-green"><span class="swatch"></span>AsyncPostgresSaver</span>
+      </div>
+    </div>
+
+    <aside class="hero-side">
+      <div class="stats">
+        <div class="stat"><span class="n">4</span><span class="l">Agents</span></div>
+        <div class="stat"><span class="n">8+</span><span class="l">Tools</span></div>
+        <div class="stat"><span class="n">1</span><span class="l">LLM (OpenRouter)</span></div>
+        <div class="stat"><span class="n">1</span><span class="l">Approval boundary</span></div>
+      </div>
+      <div class="legend">
+        <h3>Lane legend</h3>
+        <div class="row"><span class="swatch" style="background: var(--grad-2)"></span><span>Frontend / SSE</span></div>
+        <div class="row"><span class="swatch" style="background: linear-gradient(135deg,#0ea5e9,#0891b2)"></span><span>FastAPI routers</span></div>
+        <div class="row"><span class="swatch" style="background: linear-gradient(135deg,#14b8a6,#059669)"></span><span>Agent system</span></div>
+        <div class="row"><span class="swatch" style="background: linear-gradient(135deg,#f59e0b,#d97706)"></span><span>Postgres / checkpointer</span></div>
+        <div class="row"><span class="swatch" style="background: linear-gradient(135deg,#f43f5e,#be123c)"></span><span>Gmail API</span></div>
+        <div class="row"><span class="swatch" style="background: linear-gradient(135deg,#94a3b8,#64748b)"></span><span>LLM / Web search</span></div>
+      </div>
+    </aside>
+  </header>
+
+  <!-- ============== 1. SYSTEM OVERVIEW ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">01</span>System overview</h2>
+      <p class="section-note">How a single user message becomes a streamed, multi-step agent run — with state, memory, and a human gate before send.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">End-to-end pipeline</div>
+          <div class="panel-sub">User prompt → SSE stream → draft → human approval → send → notification</div>
+        </div>
+        <span class="pill">single read</span>
+      </div>
+      <div class="diagram-wrap">
+        <svg viewBox="0 0 1180 720" role="img" aria-label="End-to-end AI agentic pipeline">
+          <defs>
+            <linearGradient id="g1" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#2563eb"/><stop offset="1" stop-color="#7c3aed"/>
+            </linearGradient>
+            <linearGradient id="g2" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#0ea5e9"/><stop offset="1" stop-color="#0891b2"/>
+            </linearGradient>
+            <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#14b8a6"/><stop offset="1" stop-color="#059669"/>
+            </linearGradient>
+            <linearGradient id="g4" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#f59e0b"/><stop offset="1" stop-color="#d97706"/>
+            </linearGradient>
+            <linearGradient id="g5" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#f43f5e"/><stop offset="1" stop-color="#be123c"/>
+            </linearGradient>
+            <linearGradient id="g6" x1="0" y1="0" x2="1" y2="1">
+              <stop offset="0" stop-color="#94a3b8"/><stop offset="1" stop-color="#475569"/>
+            </linearGradient>
+            <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#cbd5e1"/>
+            </marker>
+            <marker id="arrR" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+              <path d="M0,0 L10,5 L0,10 z" fill="#fda4af"/>
+            </marker>
+            <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+              <feGaussianBlur stdDeviation="6" result="b"/>
+              <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+            </filter>
+          </defs>
+
+          <!-- Lane backgrounds -->
+          <g font-family="Inter, sans-serif">
+            <rect x="20" y="20"  width="1140" height="100" rx="14" fill="url(#g1)" opacity="0.12"/>
+            <rect x="20" y="140" width="1140" height="100" rx="14" fill="url(#g2)" opacity="0.12"/>
+            <rect x="20" y="260" width="1140" height="160" rx="14" fill="url(#g3)" opacity="0.12"/>
+            <rect x="20" y="440" width="1140" height="100" rx="14" fill="url(#g4)" opacity="0.12"/>
+            <rect x="20" y="560" width="1140" height="140" rx="14" fill="url(#g5)" opacity="0.12"/>
+
+            <text x="36" y="46"  fill="#c4b5fd" font-size="13" font-weight="800" letter-spacing="2">FRONTEND · NEXT.JS</text>
+            <text x="36" y="166" fill="#7dd3fc" font-size="13" font-weight="800" letter-spacing="2">FASTAPI ROUTERS</text>
+            <text x="36" y="286" fill="#5eead4" font-size="13" font-weight="800" letter-spacing="2">AGENT SYSTEM · LANGCHAIN + LANGGRAPH</text>
+            <text x="36" y="466" fill="#fcd34d" font-size="13" font-weight="800" letter-spacing="2">PERSISTENCE · POSTGRES + CHECKPOINTER</text>
+            <text x="36" y="586" fill="#fda4af" font-size="13" font-weight="800" letter-spacing="2">EXTERNAL · GMAIL · OPENROUTER · TAVILY</text>
+          </g>
+
+          <!-- FRONTEND nodes -->
+          <g>
+            <rect x="120" y="60" width="170" height="44" rx="10" fill="#1e1b4b" stroke="#a78bfa" stroke-width="1.4"/>
+            <text x="205" y="78" fill="#e0e7ff" font-size="12" font-weight="700" text-anchor="middle">Dashboard chat</text>
+            <text x="205" y="93" fill="#a5b4fc" font-size="10" text-anchor="middle">user prompt · SSE consumer</text>
+
+            <rect x="380" y="60" width="200" height="44" rx="10" fill="#1e1b4b" stroke="#a78bfa" stroke-width="1.4"/>
+            <text x="480" y="78" fill="#e0e7ff" font-size="12" font-weight="700" text-anchor="middle">Approval modal</text>
+            <text x="480" y="93" fill="#a5b4fc" font-size="10" text-anchor="middle">approve / edit / reject</text>
+
+            <rect x="660" y="60" width="190" height="44" rx="10" fill="#1e1b4b" stroke="#a78bfa" stroke-width="1.4"/>
+            <text x="755" y="78" fill="#e0e7ff" font-size="12" font-weight="700" text-anchor="middle">Toast / SSE notif</text>
+            <text x="755" y="93" fill="#a5b4fc" font-size="10" text-anchor="middle">sent · failed · queued</text>
+          </g>
+
+          <!-- ROUTERS nodes -->
+          <g>
+            <rect x="80" y="180" width="170" height="44" rx="10" fill="#0c4a6e" stroke="#38bdf8" stroke-width="1.4"/>
+            <text x="165" y="198" fill="#e0f2fe" font-size="12" font-weight="700" text-anchor="middle">/api/chat/message</text>
+            <text x="165" y="213" fill="#7dd3fc" font-size="10" text-anchor="middle">SSE streaming</text>
+
+            <rect x="300" y="180" width="180" height="44" rx="10" fill="#0c4a6e" stroke="#38bdf8" stroke-width="1.4"/>
+            <text x="390" y="198" fill="#e0f2fe" font-size="12" font-weight="700" text-anchor="middle">/api/approve/{id}</text>
+            <text x="390" y="213" fill="#7dd3fc" font-size="10" text-anchor="middle">resume command</text>
+
+            <rect x="520" y="180" width="180" height="44" rx="10" fill="#0c4a6e" stroke="#38bdf8" stroke-width="1.4"/>
+            <text x="610" y="198" fill="#e0f2fe" font-size="12" font-weight="700" text-anchor="middle">/api/notifications</text>
+            <text x="610" y="213" fill="#7dd3fc" font-size="10" text-anchor="middle">SSE / list / read</text>
+
+            <rect x="740" y="180" width="180" height="44" rx="10" fill="#0c4a6e" stroke="#38bdf8" stroke-width="1.4"/>
+            <text x="830" y="198" fill="#e0f2fe" font-size="12" font-weight="700" text-anchor="middle">/api/emails/*</text>
+            <text x="830" y="213" fill="#7dd3fc" font-size="10" text-anchor="middle">direct reads</text>
+          </g>
+
+          <!-- AGENTS nodes -->
+          <g>
+            <rect x="380" y="300" width="280" height="64" rx="12" fill="#064e3b" stroke="#34d399" stroke-width="1.6"/>
+            <text x="520" y="320" fill="#ecfdf5" font-size="13" font-weight="800" text-anchor="middle">Coordinator agent</text>
+            <text x="520" y="338" fill="#a7f3d0" font-size="10" text-anchor="middle" class="mono">create_agent · ToolRuntime(AgentContext)</text>
+            <text x="520" y="354" fill="#6ee7b7" font-size="10" text-anchor="middle">routes intent · owns thread_id = conv_id</text>
+
+            <rect x="80"  y="380" width="200" height="36" rx="10" fill="#022c43" stroke="#22d3ee" stroke-width="1.4"/>
+            <text x="180" y="402" fill="#cffafe" font-size="12" font-weight="700" text-anchor="middle">Mail Reader sub-agent</text>
+
+            <rect x="300" y="380" width="200" height="36" rx="10" fill="#042f2e" stroke="#2dd4bf" stroke-width="1.4"/>
+            <text x="400" y="402" fill="#ccfbf1" font-size="12" font-weight="700" text-anchor="middle">Mailing sub-agent</text>
+
+            <rect x="520" y="380" width="200" height="36" rx="10" fill="#3a2613" stroke="#fbbf24" stroke-width="1.4"/>
+            <text x="620" y="402" fill="#fef3c7" font-size="12" font-weight="700" text-anchor="middle">Web Search sub-agent</text>
+
+            <rect x="740" y="380" width="200" height="36" rx="10" fill="#3b0a1a" stroke="#fb7185" stroke-width="1.4"/>
+            <text x="840" y="402" fill="#ffe4e6" font-size="12" font-weight="700" text-anchor="middle">send_email + interrupt()</text>
+          </g>
+
+          <!-- PERSISTENCE nodes -->
+          <g>
+            <rect x="80"  y="500" width="280" height="36" rx="10" fill="#1f1303" stroke="#fbbf24" stroke-width="1.4"/>
+            <text x="220" y="522" fill="#fde68a" font-size="12" font-weight="700" text-anchor="middle">App tables · SQLAlchemy async</text>
+
+            <rect x="400" y="500" width="320" height="36" rx="10" fill="#1f1303" stroke="#fbbf24" stroke-width="1.4"/>
+            <text x="560" y="522" fill="#fde68a" font-size="12" font-weight="700" text-anchor="middle">LangGraph checkpointer · AsyncPostgresSaver</text>
+
+            <rect x="760" y="500" width="200" height="36" rx="10" fill="#1f1303" stroke="#fbbf24" stroke-width="1.4"/>
+            <text x="860" y="522" fill="#fde68a" font-size="12" font-weight="700" text-anchor="middle">Notification queue</text>
+          </g>
+
+          <!-- EXTERNAL nodes -->
+          <g>
+            <rect x="80"  y="620" width="200" height="44" rx="10" fill="#3b0a1a" stroke="#fb7185" stroke-width="1.4"/>
+            <text x="180" y="640" fill="#ffe4e6" font-size="12" font-weight="700" text-anchor="middle">Gmail API</text>
+            <text x="180" y="655" fill="#fda4af" font-size="10" text-anchor="middle">read · search · send</text>
+
+            <rect x="320" y="620" width="220" height="44" rx="10" fill="#1f2937" stroke="#94a3b8" stroke-width="1.4"/>
+            <text x="430" y="640" fill="#f1f5f9" font-size="12" font-weight="700" text-anchor="middle">OpenRouter · LLM</text>
+            <text x="430" y="655" fill="#cbd5e1" font-size="10" text-anchor="middle">qwen/qwen3.5-35b-a3b</text>
+
+            <rect x="580" y="620" width="200" height="44" rx="10" fill="#1f2937" stroke="#94a3b8" stroke-width="1.4"/>
+            <text x="680" y="640" fill="#f1f5f9" font-size="12" font-weight="700" text-anchor="middle">Tavily · web search</text>
+            <text x="680" y="655" fill="#cbd5e1" font-size="10" text-anchor="middle">research before draft</text>
+
+            <rect x="820" y="620" width="200" height="44" rx="10" fill="#1f2937" stroke="#94a3b8" stroke-width="1.4"/>
+            <text x="920" y="640" fill="#f1f5f9" font-size="12" font-weight="700" text-anchor="middle">Google OAuth</text>
+            <text x="920" y="655" fill="#cbd5e1" font-size="10" text-anchor="middle">scopes: gmail.send + .readonly</text>
+          </g>
+
+          <!-- =================== ARROWS =================== -->
+          <!-- FE -> Router chat -->
+          <path d="M205 104 L205 180" fill="none" stroke="#cbd5e1" stroke-width="1.6" marker-end="url(#arr)"/>
+          <text x="213" y="146" fill="#94a3b8" font-size="10">POST prompt</text>
+
+          <!-- Router chat -> Coordinator -->
+          <path d="M165 224 L165 290 L380 290 L380 300" fill="none" stroke="#cbd5e1" stroke-width="1.6" marker-end="url(#arr)"/>
+          <text x="170" y="262" fill="#94a3b8" font-size="10">build AgentContext · invoke</text>
+
+          <!-- Coordinator -> Sub-agents -->
+          <path d="M460 364 L180 380" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <path d="M500 364 L400 380" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <path d="M580 364 L620 380" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="370" y="372" fill="#94a3b8" font-size="10">tools: call_*_agent</text>
+
+          <!-- Sub-agents -> External -->
+          <path d="M180 416 L180 620" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <path d="M400 416 L400 600 L540 600 L540 620" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <path d="M620 416 L620 600 L680 600 L680 620" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+
+          <!-- send_email + interrupt -> persistence draft -->
+          <path d="M840 416 L860 460 L200 460 L200 500" fill="none" stroke="#fda4af" stroke-width="1.6" marker-end="url(#arrR)"/>
+          <text x="640" y="452" fill="#fda4af" font-size="10">persist draft (status=pending_approval) · graph interrupts</text>
+
+          <!-- Approval modal -> approve router -> resume -->
+          <path d="M480 104 L480 160 L390 160 L390 180" fill="none" stroke="#fda4af" stroke-width="1.6" marker-end="url(#arrR)"/>
+          <text x="495" y="142" fill="#fda4af" font-size="10">user decision</text>
+
+          <!-- approve router -> coordinator resume -->
+          <path d="M390 224 L390 290 L380 290 L380 332" fill="none" stroke="#fda4af" stroke-width="1.6" marker-end="url(#arrR)"/>
+          <text x="225" y="278" fill="#fda4af" font-size="10">Command(resume=...)</text>
+
+          <!-- Coordinator -> Gmail send -->
+          <path d="M660 332 L860 332 L860 600 L180 600 L180 620" fill="none" stroke="#fda4af" stroke-width="1.6" marker-end="url(#arrR)"/>
+          <text x="700" y="324" fill="#fda4af" font-size="10">if approved · send_email()</text>
+
+          <!-- Coordinator -> Notification queue -> notifications router -> FE -->
+          <path d="M660 340 L860 340 L860 500" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <path d="M860 518 L860 410 L610 410" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="780" y="514" fill="#94a3b8" font-size="10">push notification</text>
+
+          <path d="M610 224 L610 150 L755 150 L755 104" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="690" y="142" fill="#94a3b8" font-size="10">SSE event</text>
+
+          <!-- Coordinator -> LLM -->
+          <path d="M520 364 L520 560 L430 560 L430 620" fill="none" stroke="#94a3b8" stroke-width="1.2" stroke-dasharray="3 3" marker-end="url(#arr)"/>
+          <text x="525" y="588" fill="#94a3b8" font-size="10">tool calls / completions</text>
+
+          <!-- Coordinator <-> checkpointer -->
+          <path d="M660 350 L660 480 L560 480 L560 500" fill="none" stroke="#cbd5e1" stroke-width="1.4" marker-end="url(#arr)"/>
+          <text x="668" y="446" fill="#94a3b8" font-size="10">state · thread_id = conv_id</text>
+        </svg>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 2. AGENTS ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">02</span>Agents &amp; their responsibilities</h2>
+      <p class="section-note">Every agent is its own <code>create_agent</code>-compiled graph. The coordinator exposes them as async callable tools and shares one <code>AgentContext</code> per request.</p>
+    </div>
+
+    <div class="grid-3">
+      <article class="card">
+        <div class="ico" style="background:rgba(124,58,237,0.2); border-color:rgba(167,139,250,0.4); color:#c4b5fd;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>
+        </div>
+        <span class="label coord">Coordinator</span>
+        <h3>Routes intent · owns the thread</h3>
+        <p>The brain. Interprets the user prompt, decides which sub-agent (or tools) to call, asks for clarification when intent is ambiguous, and stitches the final answer.</p>
+        <ul>
+          <li>Built with <code>create_agent</code> + <code>context_schema=AgentContext</code></li>
+          <li>Tools: <code>call_mail_reader_agent</code>, <code>call_mailing_agent</code>, <code>call_web_search_agent</code>, <code>ask_for_clarification</code></li>
+          <li>thread_id = conversation_id → resumable after interrupt</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="ico" style="background:rgba(14,165,233,0.2); border-color:rgba(56,189,248,0.4); color:#7dd3fc;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v12H5l-1 4z"/></svg>
+        </div>
+        <span class="label read">Mail Reader</span>
+        <h3>Read · search · summarize</h3>
+        <p>Talks to Gmail only. Returns structured content blocks (<code>email_list</code>, <code>summary</code>) so the UI can render cards instead of a wall of text.</p>
+        <ul>
+          <li>Tools: <code>list_recent_emails</code>, <code>search_emails</code>, <code>get_email</code>, <code>summarize_thread</code></li>
+          <li>User-scoped thread_id — isolated from coordinator thread</li>
+          <li>Never sends — safe to invoke without approval</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="ico" style="background:rgba(20,184,166,0.2); border-color:rgba(45,212,191,0.4); color:#5eead4;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4 20-7Z"/></svg>
+        </div>
+        <span class="label send">Mailing</span>
+        <h3>Draft-only · owns the HITL gate</h3>
+        <p>Composes fresh emails and replies. The only path to <code>send_email</code> — and the only place that calls LangGraph <code>interrupt()</code> for human approval.</p>
+        <ul>
+          <li>Tool: <code>draft_email</code> (writes DB row) + <code>send_email</code> (interrupts)</li>
+          <li>Always persists draft before pausing — UI has something to show</li>
+          <li>Resumes via <code>Command(resume=...)</code> with approve / edit / reject payload</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="ico" style="background:rgba(245,158,11,0.2); border-color:rgba(251,191,36,0.4); color:#fcd34d;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+        </div>
+        <span class="label web">Web Search</span>
+        <h3>Research before drafting</h3>
+        <p>Optional pre-step for fresh-email flows. Pulls web sources via Tavily so drafts aren't pulled out of thin air.</p>
+        <ul>
+          <li>Tool: <code>tavily_search(query)</code> via direct <code>TavilyClient</code> (not the LangChain wrapper)</li>
+          <li>Returns a <code>research_report</code> content block for the chat UI</li>
+          <li>Called by coordinator before <code>call_mailing_agent</code> for fresh-email prompts</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="ico" style="background:rgba(244,63,94,0.2); border-color:rgba(251,113,133,0.4); color:#fda4af;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-12V5l-8-3-8 3v5c0 8 8 12 8 12z"/></svg>
+        </div>
+        <span class="label hitl">HITL gate</span>
+        <h3>The approval boundary</h3>
+        <p>Not an agent — a behavior of the mailing agent's <code>send_email</code> tool. This is the only irreversible action in the system, so it always pauses for the user.</p>
+        <ul>
+          <li>Native LangGraph <code>interrupt({...})</code> — graph checkpoints and stops</li>
+          <li>Resume: <code>Command(resume={"approved": bool, "edited_body": ...})</code></li>
+          <li>Approved → Gmail send. Rejected → coordinator can rewrite the draft.</li>
+        </ul>
+      </article>
+
+      <article class="card">
+        <div class="ico" style="background:rgba(34,197,94,0.2); border-color:rgba(74,222,128,0.4); color:#86efac;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M3 5v6c0 1.7 4 3 9 3s9-1.3 9-3V5"/><path d="M3 11v6c0 1.7 4 3 9 3s9-1.3 9-3v-6"/></svg>
+        </div>
+        <span class="label svc">Shared services</span>
+        <h3>One context, many tools</h3>
+        <p>All agents share a per-request <code>AgentContext</code> that wraps the heavy services. No closures, no global state — context is injected by the runtime.</p>
+        <ul>
+          <li><code>GmailService</code> — async Gmail API client, token refresh</li>
+          <li><code>NotificationService</code> — per-user SSE queue + persisted notifs</li>
+          <li><code>AsyncPostgresSaver</code> — LangGraph checkpointer (separate DSN)</li>
+        </ul>
+      </article>
+    </div>
+  </section>
+
+  <!-- ============== 3. TOOL MAP ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">03</span>Tool map</h2>
+      <p class="section-note">Every callable exposed to the LLM, who owns it, and what it touches. Side-effectful tools (write / send / interrupt) are visually marked.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Tools available to agents</div>
+          <div class="panel-sub">Read-only = safe to call freely · Side-effect = persists · Interrupt = pauses the graph</div>
+        </div>
+        <div class="row">
+          <span class="pill teal">safe</span>
+          <span class="pill amber">side-effect</span>
+          <span class="pill rose">interrupt</span>
+        </div>
+      </div>
+      <div style="padding: 18px;">
+        <div class="tools">
+          <div class="h">Tool</div>
+          <div class="h">Owner</div>
+          <div class="h">Effect</div>
+          <div class="h">Description</div>
+
+          <div class="r"><span class="name">ask_for_clarification</span></div>
+          <div class="r"><span class="owner">Coordinator</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Returns a clarifying question to the user. Surfaces inline in chat when intent is ambiguous.</div>
+
+          <div class="r"><span class="name">call_mail_reader_agent</span></div>
+          <div class="r"><span class="owner">Coordinator</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Async invokes the mail-reader sub-agent with a task string. Returns a structured payload the UI can render.</div>
+
+          <div class="r"><span class="name">call_mailing_agent</span></div>
+          <div class="r"><span class="owner">Coordinator</span></div>
+          <div class="r"><span class="pill amber">side-effect</span></div>
+          <div class="r desc">Dispatches a draft or reply action. Internally calls <code>draft_email</code>; may hit <code>send_email</code> (interrupt).</div>
+
+          <div class="r"><span class="name">call_web_search_agent</span></div>
+          <div class="r"><span class="owner">Coordinator</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Runs Tavily research for fresh-email workflows and returns a <code>research_report</code> content block.</div>
+
+          <div class="r"><span class="name">list_recent_emails</span></div>
+          <div class="r"><span class="owner">Mail Reader</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Returns the N most recent inbox messages with sender, subject, snippet.</div>
+
+          <div class="r"><span class="name">search_emails</span></div>
+          <div class="r"><span class="owner">Mail Reader</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Gmail query search by sender (name or address) and/or topic keywords.</div>
+
+          <div class="r"><span class="name">get_email</span></div>
+          <div class="r"><span class="owner">Mail Reader</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Fetches a single message and decodes the body (text/html → text).</div>
+
+          <div class="r"><span class="name">summarize_thread</span></div>
+          <div class="r"><span class="owner">Mail Reader</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Condenses a thread into key points + required actions for the user.</div>
+
+          <div class="r"><span class="name">draft_email</span></div>
+          <div class="r"><span class="owner">Mailing</span></div>
+          <div class="r"><span class="pill amber">side-effect</span></div>
+          <div class="r desc">Persists an <code>email_drafts</code> row with status <code>pending_approval</code>. Returns a <code>draft_email</code> content block.</div>
+
+          <div class="r"><span class="name">send_email</span></div>
+          <div class="r"><span class="owner">Mailing</span></div>
+          <div class="r"><span class="pill rose">interrupt</span></div>
+          <div class="r desc">Calls <code>interrupt({...})</code> on the LangGraph thread. On resume-true: Gmail <code>users.messages.send</code> + notification.</div>
+
+          <div class="r"><span class="name">tavily_search</span></div>
+          <div class="r"><span class="owner">Web Search</span></div>
+          <div class="r"><span class="pill teal">safe</span></div>
+          <div class="r desc">Direct <code>TavilyClient.search()</code> call. Returns results + answer snippet + sources.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 4. HITL SEQUENCE ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">04</span>Human-in-the-loop sequence</h2>
+      <p class="section-note">The end-to-end path from a "draft an email" prompt to a real Gmail send. Red lanes mark the approval boundary; green marks the happy path.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Approval round-trip</div>
+          <div class="panel-sub">User prompt → coordinator → mailing → interrupt → modal → resume → Gmail</div>
+        </div>
+        <span class="pill rose">interrupt</span>
+      </div>
+
+      <div class="seq">
+        <!-- 1 -->
+        <div class="lane">
+          <div class="who fe">Frontend</div>
+          <div class="msg">User submits prompt: <em>"Reply to the last email from hr@example.com with a polite decline."</em><div class="meta">SSE open · POST /api/chat/message</div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who be">Router</div>
+          <div class="msg">Build <code>AgentContext(user, conv, gmail, db, notif)</code> and <code>ainvoke(coordinator, thread_id=conv_id)</code><div class="meta">FastAPI · streaming response</div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who ag">Coordinator</div>
+          <div class="msg tool">Tool call → <code>call_mail_reader_agent("find last email from hr@example.com")</code><div class="meta">LLM chose this tool · tool_runtime propagates AgentContext</div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who ag">Mail Reader</div>
+          <div class="msg">Returns structured <code>email_list</code> content block → SSE event <code>assistant_block</code> rendered as cards in chat.</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who ag">Coordinator</div>
+          <div class="msg tool">Tool call → <code>call_mailing_agent("reply", to=..., thread=...)</code> with a written draft body.</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who ag">Mailing</div>
+          <div class="msg tool">Calls <code>draft_email(...)</code> → INSERT <code>email_drafts</code> (status=<code>pending_approval</code>) → SSE <code>draft_email</code> block</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who ag">Mailing</div>
+          <div class="msg hitl">Calls <code>interrupt({type:"approval_required", draft_id, to, subject, body})</code><div class="meta">graph checkpoints · execution pauses · state serialised to Postgres</div></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who be">Router</div>
+          <div class="msg hitl">Detects <code>__interrupt__</code> in the stream → broadcasts <code>approval_required</code> over SSE → NotificationService queues a UI notif.</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who fe">Frontend</div>
+          <div class="msg">Modal opens · shows draft inline in the thread · user clicks <strong>Approve</strong> / <strong>Edit &amp; Approve</strong> / <strong>Reject</strong></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who be">Router</div>
+          <div class="msg hitl"><code>POST /api/approve/{draft_id}</code> → updates draft row → <code>coordinator.ainvoke(Command(resume={...}), config={thread_id})</code></div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who ag">Mailing</div>
+          <div class="msg ok">Resumes after <code>interrupt()</code>. If approved: calls <code>GmailService.send_email()</code>. If rejected: returns to coordinator for rewrite.</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who gm">Gmail API</div>
+          <div class="msg ok">Message sent → returns <code>{id, threadId}</code> → draft marked <code>sent</code>.</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who ag">Coordinator</div>
+          <div class="msg">Final assistant turn summarises outcome. NotificationService emits <code>email_sent</code>.</div>
+        </div>
+        <div class="spacer"></div>
+        <div class="lane">
+          <div class="who fe">Frontend</div>
+          <div class="msg ok">Toast: <em>"Email sent to hr@example.com"</em> · draft artifact flips to <strong>Sent</strong>.</div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 5. STATE & PERSISTENCE ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">05</span>State, context &amp; persistence</h2>
+      <p class="section-note">Two persistence layers, one database, one thread model — and a per-request context object that travels into every tool call.</p>
+    </div>
+
+    <div class="grid-2">
+      <div class="card">
+        <span class="label svc">AgentContext</span>
+        <h3>Per-request dependency injection</h3>
+        <p>Built once per request, injected via LangChain's <code>context_schema</code> + <code>ToolRuntime</code>. No closures, no globals — every tool reads from <code>runtime.context</code>.</p>
+        <pre class="code"><span class="c"># backend/app/agents/context.py</span>
+<span class="k">class</span> <span class="n">AgentContext</span>(<span class="n">BaseModel</span>):
+    user: <span class="n">User</span>
+    conversation: <span class="n">Conversation</span>
+    gmail: <span class="n">GmailService</span>
+    db: <span class="n">AsyncSession</span>
+    notifications: <span class="n">NotificationService</span>
+    checkpointer: <span class="n">AsyncPostgresSaver</span></pre>
+      </div>
+
+      <div class="card">
+        <span class="label svc">Two persistence layers · one DB</span>
+        <h3>App tables + LangGraph checkpointer</h3>
+        <p>SQLAlchemy (async) manages the app domain. LangGraph writes its own checkpoint tables to the same Postgres using the <em>psycopg</em> DSN.</p>
+        <pre class="code"><span class="c"># Two DSNs, one database</span>
+<span class="n">DATABASE_URL</span>=<span class="s">"postgresql+asyncpg://.../email_agent"</span>
+<span class="n">DATABASE_URL_PSYCOPG</span>=<span class="s">"postgresql://.../email_agent"</span>
+
+<span class="c"># LangGraph owns thread_id = conversation_id</span>
+<span class="n">config</span> = {<span class="s">"configurable"</span>: {<span class="s">"thread_id"</span>: conv_id}}
+
+<span class="c"># tables managed by Alembic</span>
+users · conversations · email_drafts · notifications
+
+<span class="c"># tables managed by AsyncPostgresSaver.setup()</span>
+checkpoints · checkpoint_writes · checkpoint_blobs</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 6. FLOW VARIANTS ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">06</span>Three pipeline variants</h2>
+      <p class="section-note">The same wiring handles three different user intents — read, reply, and fresh email — with the HITL gate only on the write paths.</p>
+    </div>
+
+    <div class="steps">
+      <div class="step">
+        <span class="n">1</span>
+        <h4>Read flow <span class="pill teal">no send</span></h4>
+        <p>User: <em>"Summarize emails from BRAC Bank this week."</em> Coordinator → mail reader → tools → SSE cards back to chat. No draft, no interrupt.</p>
+      </div>
+      <div class="step">
+        <span class="n">2</span>
+        <h4>Reply flow <span class="pill rose">HITL</span></h4>
+        <p>User: <em>"Reply to the last email from hr@… with a polite decline."</em> Coordinator → mail reader (find target) → mailing (draft) → <strong>interrupt</strong> → resume → send.</p>
+      </div>
+      <div class="step">
+        <span class="n">3</span>
+        <h4>Fresh email flow <span class="pill rose">HITL</span></h4>
+        <p>User: <em>"Write to ceo@… about AI trends in Bangladesh."</em> Coordinator → web search (research) → mailing (draft) → <strong>interrupt</strong> → resume → send. Rejection may re-trigger research.</p>
+      </div>
+      <div class="step">
+        <span class="n">4</span>
+        <h4>Clarification <span class="pill blue">safe</span></h4>
+        <p>User: <em>"Send her something nice."</em> Coordinator can't resolve "her" or "something nice" → <code>ask_for_clarification</code> → SSE question → user clarifies → loop.</p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 7. LLM & TOOL LOOP ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">07</span>The LLM ↔ tools loop</h2>
+      <p class="section-note">Inside any agent, this loop repeats until the model emits a final answer or hits an interrupt. The checkpointer makes every step reproducible and replayable.</p>
+    </div>
+
+    <div class="panel">
+      <div class="panel-head">
+        <div>
+          <div class="panel-title">Per-step behavior</div>
+          <div class="panel-sub">state.messages grows on every turn · interrupt persists and yields control to the API</div>
+        </div>
+        <span class="pill">graph cycle</span>
+      </div>
+      <div class="panel-body">
+        <pre class="code"><span class="c"># 1. user message enters the coordinator graph</span>
+state.messages.append(HumanMessage(prompt))
+
+<span class="c"># 2. LLM decides: answer now OR call tools</span>
+response = ChatOpenRouter(model=<span class="s">"qwen/qwen3.5-35b-a3b"</span>).bind_tools(tools).invoke(state.messages)
+
+<span class="c"># 3. if tool calls → execute them in parallel, append ToolMessages</span>
+<span class="k">for</span> call <span class="k">in</span> response.tool_calls:
+    result = <span class="f">execute_tool</span>(call.name, call.args, runtime=ToolRuntime(context))
+    state.messages.append(ToolMessage(content=result, tool_call_id=call.id))
+
+<span class="c"># 4. special-case: send_email → interrupt() yields the graph</span>
+<span class="k">if</span> call.name == <span class="s">"send_email"</span>:
+    approval = <span class="f">interrupt</span>({draft_id, to, subject, body})   <span class="c"># pauses · checkpointed</span>
+
+<span class="c"># 5. resume (Command(resume={approved, edited_body})) continues from step 3</span>
+<span class="k">if</span> approval[<span class="s">"approved"</span>]:
+    gmail.send_email(draft)        <span class="c"># external side effect</span>
+    notifications.emit(<span class="s">"email_sent"</span>, draft)
+
+<span class="c"># 6. LLM summarises outcome · final assistant message appended · graph ends</span>
+state.messages.append(AIMessage(<span class="s">"Sent. Confirmation: ..."</span>))</pre>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============== 8. PRINCIPLES ============== -->
+  <section>
+    <div class="section-head">
+      <h2><span class="section-num">08</span>Design principles in one glance</h2>
+      <p class="section-note">Why the pipeline is shaped the way it is — the rules that keep the agents safe, resumable, and observable.</p>
+    </div>
+
+    <div class="grid-3">
+      <div class="card">
+        <span class="label hitl">HITL</span>
+        <h3>One irreversible action, one gate</h3>
+        <p><code>send_email</code> is the only tool that touches the outside world in a non-reversible way. Everything else is read or local DB. The gate is always <code>interrupt()</code>, never a UI prompt the backend has to trust.</p>
+      </div>
+      <div class="card">
+        <span class="label svc">Stateful</span>
+        <h3>Threads are first-class</h3>
+        <p><code>thread_id = conversation_id</code>. The checkpointer turns every graph run into a durable object that can be replayed, time-travelled, or resumed after a user closes the tab.</p>
+      </div>
+      <div class="card">
+        <span class="label tool">Composable</span>
+        <h3>Sub-agents are tools</h3>
+        <p>Each sub-agent is a compiled graph, exposed to the coordinator as an async tool. The coordinator doesn't know — or care — which model the sub-agent uses, only what it returns.</p>
+      </div>
+      <div class="card">
+        <span class="label coord">Single owner</span>
+        <h3>One coordinator per turn</h3>
+        <p>The coordinator is the only agent that talks to the user. Sub-agents return structured content blocks; the coordinator composes them into the final answer.</p>
+      </div>
+      <div class="card">
+        <span class="label web">Fresh when needed</span>
+        <h3>Research is opt-in</h3>
+        <p>Web search is called by the coordinator only for fresh-email workflows. Read and reply flows skip it entirely, keeping latency and cost low.</p>
+      </div>
+      <div class="card">
+        <span class="label ext">Observable</span>
+        <h3>Every step is a stream</h3>
+        <p>SSE carries tool calls, content blocks, and interrupts. LangGraph checkpoints add a second observability layer. LangSmith tracing is a one-flag opt-in.</p>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    Autonomous Email Agent · AI Agentic Pipeline architecture · v2 · companion to
+    <a href="./architecture-overview.html">architecture-overview.html</a> and <code>backend/docs/architecture.md</code>
+  </footer>
+</main>
+</body>
+</html>
